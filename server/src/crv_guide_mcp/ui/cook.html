@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Second Look</title>
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+/* MCP Apps view for Alexa+ (ui://second-look/cook.html).
+   Authored on Amazon's Alexa+ add-on base canvas (768 px wide, Block viewport) with its
+   type, spacing, radius and card-colour tokens; the root zoom maps the base canvas onto the
+   host's container (1.667 on an Echo Show 8 or 15). */
+:root {
+  --display4: 28px; --display5: 24px; --headline1: 20px; --headline2: 18px;
+  --body1: 16px; --body2: 14px; --body3: 12px; --label1: 10px;
+  --s2: 2px; --s6: 6px; --s8: 8px; --s12: 12px; --s16: 16px; --s20: 20px; --s24: 24px;
+  --r4: 4px; --r8: 8px; --r12: 12px; --r16: 16px;
+  --font: "Amazon Ember", "SF Pro Text", -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+:root[data-theme="dark"] {
+  --bg: #0d1117; --card: #14181e; --inner: #1b2028; --line: rgba(255, 255, 255, 0.08);
+  --ink: #f2f4f7; --ink2: #b4bdc9; --ink3: #7f8a98;
+  --btn: #232f40; --btn-strong: #2d415e; --accent: #4fc3e8; --ok: #5ccf9b; --warn: #f2b45b; --check: #ff8f7a;
+}
+:root[data-theme="light"] {
+  --bg: #faf9fb; --card: #ffffff; --inner: #f3f4f7; --line: rgba(20, 24, 30, 0.1);
+  --ink: #14181e; --ink2: #3c4654; --ink3: #6b7684;
+  --btn: #e6ebf2; --btn-strong: #d3dcea; --accent: #0f7fae; --ok: #1d8a5b; --warn: #a8670c; --check: #b8432f;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); overflow: hidden; -webkit-font-smoothing: antialiased; }
+.view { position: relative; width: 768px; height: 480px; padding: var(--s12) var(--s16); display: grid; grid-template-rows: auto 1fr auto; gap: var(--s12); }
+
+/* header: where you are */
+.top { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--s12); }
+.where { font-size: var(--body2); font-weight: 700; color: var(--ink2); white-space: nowrap; }
+.where b { color: var(--ink); }
+.progress { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 3px; }
+.progress i { height: 4px; border-radius: 9999px; background: var(--inner); }
+.progress i.done { background: color-mix(in srgb, var(--accent) 45%, var(--inner)); }
+.progress i.now { background: var(--accent); }
+
+/* the step: words left, the video on the right */
+.card { display: grid; grid-template-columns: 1fr 360px; gap: var(--s16); min-height: 0; }
+.words { display: flex; flex-direction: column; gap: var(--s8); min-height: 0; }
+h1 { font-size: var(--display5); line-height: 1.15; margin: 0; letter-spacing: -0.01em; }
+.say { font-size: var(--body1); line-height: 1.4; margin: 0; color: var(--ink); }
+.note { display: grid; grid-template-columns: 18px 1fr; gap: var(--s6); font-size: var(--body3); line-height: 1.35; color: var(--ink2); margin: 0; }
+.note i { font-size: 15px; margin-top: 1px; }
+.note.ok i { color: var(--ok); } .note.seen i { color: var(--warn); } .note.check i { color: var(--check); }
+.note b { color: var(--ink); font-weight: 700; }
+
+.media { display: flex; flex-direction: column; gap: var(--s8); min-height: 0; }
+.frame { position: relative; margin: 0; border-radius: var(--r12); overflow: hidden; background: var(--inner); aspect-ratio: 16 / 9; }
+.frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.frame figcaption { position: absolute; inset: auto var(--s8) var(--s8) var(--s8); display: flex; justify-content: space-between; gap: var(--s8); }
+.pill { font-size: var(--label1); font-weight: 700; color: #f2f4f7; background: rgba(8, 12, 18, 0.72); border-radius: 9999px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px; border: 0; font-family: inherit; }
+button.pill { cursor: pointer; }
+
+/* answers from the video */
+.evidence { display: grid; gap: var(--s6); }
+.ev { display: grid; grid-template-columns: 88px 1fr; gap: var(--s8); align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: var(--r8); padding: var(--s6); cursor: pointer; text-align: left; color: inherit; font-family: inherit; }
+.ev img { width: 88px; height: 50px; object-fit: cover; border-radius: var(--r4); display: block; }
+.ev .t { font-size: var(--label1); font-weight: 800; color: var(--accent); }
+.ev .q { font-size: var(--body3); line-height: 1.3; color: var(--ink2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ev:active { transform: scale(0.99); }
+
+/* controls: muted secondary buttons, one stronger primary (Amazon: bright colour only for the final action) */
+.bottom { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: var(--s12); }
+.controls { display: flex; gap: var(--s8); }
+.btn { font-family: inherit; font-size: var(--body3); font-weight: 700; color: var(--ink); background: var(--btn); border: 0; border-radius: 9999px; padding: 7px 14px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.btn.primary { background: var(--btn-strong); }
+.btn i { font-size: 14px; }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn:active { transform: translateY(1px); }
+.upnext { justify-self: end; font-size: var(--body3); color: var(--ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.upnext b { color: var(--ink2); font-weight: 700; }
+
+/* the moment: frame, then the clip, over the whole view */
+.moment { position: absolute; inset: 0; background: color-mix(in srgb, var(--bg) 92%, transparent); display: grid; place-items: center; padding: var(--s12) var(--s16); z-index: 2; }
+.moment-inner { width: 100%; height: 100%; display: grid; grid-template-rows: 1fr auto; gap: var(--s8); }
+.moment video, .moment img { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; border-radius: var(--r12); display: block; }
+.moment-cap { display: flex; justify-content: space-between; align-items: center; gap: var(--s12); font-size: var(--body2); color: var(--ink2); }
+.empty { display: grid; place-items: center; height: 100%; color: var(--ink3); font-size: var(--body2); }
+[hidden] { display: none !important; }
+@media (prefers-reduced-motion: no-preference) {
+  .card, .evidence .ev { animation: rise 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  .evidence .ev:nth-child(2) { animation-delay: 0.05s; } .evidence .ev:nth-child(3) { animation-delay: 0.1s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+}
+</style>
+</head>
+<body>
+<div class="view" id="view">
+  <header class="top">
+    <div class="where" id="stepNo">Waiting for a video</div>
+    <div class="progress" id="progress" aria-hidden="true"></div>
+  </header>
+
+  <section class="card" id="stepCard" hidden>
+    <div class="words">
+      <h1 id="stepTitle"></h1>
+      <p class="say" id="stepSay"></p>
+      <p class="note ok"><i class="ph ph-check-circle"></i><span><b>Looks right when</b> <span id="stepLook"></span></span></p>
+      <p class="note seen" id="stepSeen" hidden><i class="ph ph-eye"></i><span><b>Only in the picture</b> <span></span></span></p>
+      <p class="note check" id="stepCheck" hidden><i class="ph ph-warning-circle"></i><span><b>Not said in the video</b> <span></span></span></p>
+    </div>
+    <div class="media">
+      <figure class="frame" id="frameBox">
+        <img id="frameImg" alt="Frame from the video">
+        <figcaption><span class="pill" id="frameTime">0:00</span><button class="pill" id="replayBtn"><i class="ph-fill ph-play"></i>Replay this part</button></figcaption>
+      </figure>
+      <div class="evidence" id="evidence"></div>
+    </div>
+  </section>
+  <div class="empty" id="emptyView">Say "Alexa, open Second Look" or load a video.</div>
+
+  <footer class="bottom">
+    <div class="controls">
+      <button class="btn" id="backBtn" disabled><i class="ph ph-arrow-left"></i>Back</button>
+      <button class="btn" id="repeatBtn" disabled><i class="ph ph-arrow-counter-clockwise"></i>Repeat</button>
+      <button class="btn primary" id="nextBtn" disabled>Next<i class="ph ph-arrow-right"></i></button>
+    </div>
+    <div class="upnext" id="nextBox" hidden>Up next <b id="nextTitle"></b></div>
+  </footer>
+
+  <div class="moment" id="moment" hidden>
+    <div class="moment-inner">
+      <video id="clip" playsinline hidden></video>
+      <img id="momentImg" alt="">
+      <div class="moment-cap"><span id="momentCap"></span><button class="btn" id="momentClose"><i class="ph ph-x"></i>Close</button></div>
+    </div>
+  </div>
+</div>
+<script>
+// MCP Apps view: talks to its host (Alexa+, or the simulated Echo Show) with JSON-RPC over postMessage.
+// It renders tool results the host forwards (ui/notifications/tool-result) and calls tools through
+// the host (tools/call) for its own buttons. No network access besides the media the server serves.
+const $ = (id) => document.getElementById(id);
+let snap = null, rpcId = 0;
+const waiting = new Map();
+const send = (m) => window.parent.postMessage(m, "*");
+const notify = (method, params = {}) => send({ jsonrpc: "2.0", method, params });
+function request(method, params = {}) {
+  const id = ++rpcId;
+  send({ jsonrpc: "2.0", id, method, params });
+  return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+}
+window.addEventListener("message", (e) => {
+  if (e.source !== window.parent) return;
+  const m = e.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.id !== undefined && !m.method && waiting.has(m.id)) {
+    const w = waiting.get(m.id); waiting.delete(m.id);
+    m.error ? w.reject(new Error(m.error.message)) : w.resolve(m.result);
+    return;
+  }
+  if (m.method === "ui/notifications/tool-result") show(m.params);
+  else if (m.method === "ui/notifications/host-context-changed") applyContext(m.params || {});
+  else if (m.method === "ui/resource-teardown" || m.method === "ping") send({ jsonrpc: "2.0", id: m.id, result: {} });
+});
+
+function applyContext(ctx) {
+  if (ctx.theme) document.documentElement.dataset.theme = ctx.theme;
+  const dim = ctx.containerDimensions || {};
+  const w = dim.width || window.innerWidth, h = dim.height || window.innerHeight;
+  const z = w / 768;  // author on the 768 px base canvas, scale the root to the host's container
+  document.documentElement.style.zoom = z.toFixed(4);
+  $("view").style.height = `${Math.floor(h / z)}px`;
+}
+
+// ---------------------------------------------------------------- rendering tool results
+function show(result) {
+  const d = (result && result.structuredContent) || {};
+  if (d.session_id && d.step) renderStep(d);
+  if (Array.isArray(d.evidence)) renderEvidence(d.evidence);
+  if (d.image_url && d.clip) showMoment(d);
+}
+
+function renderStep(s) {
+  const changed = !snap || snap.step.step_number !== s.step.step_number || snap.session_id !== s.session_id;
+  snap = s;
+  const st = s.step;
+  $("emptyView").hidden = true; $("stepCard").hidden = false;
+  $("stepNo").innerHTML = `<b>Step ${st.step_number} of ${st.total_steps}</b>`;
+  $("stepTitle").textContent = st.title;
+  $("stepSay").textContent = st.say;
+  $("stepLook").textContent = st.look_for;
+  const seen = $("stepSeen"); seen.hidden = !st.visual_note;
+  seen.querySelector("span span").textContent = st.visual_note || "";
+  const chk = $("stepCheck"); chk.hidden = !(st.unverified && st.unverified.length);
+  chk.querySelector("span span").textContent = (st.unverified || []).join(", ") + ". Check the picture.";
+  if ($("frameImg").src !== st.frame_url) $("frameImg").src = st.frame_url;
+  $("frameTime").textContent = `From the video at ${st.frame_time}`;
+  const prog = $("progress"); prog.innerHTML = "";
+  for (let i = 1; i <= st.total_steps; i++) {
+    const d = document.createElement("i");
+    if ((s.completed_steps || []).includes(i)) d.className = "done";
+    if (i === st.step_number) d.className = "now";
+    prog.appendChild(d);
+  }
+  $("nextBox").hidden = !s.next_step_title; $("nextTitle").textContent = s.next_step_title || "";
+  for (const b of ["backBtn", "repeatBtn", "nextBtn"]) $(b).disabled = false;
+  if (changed) { $("evidence").innerHTML = ""; $("frameBox").hidden = false; closeMoment(); }
+}
+
+function renderEvidence(list) {
+  const box = $("evidence"); box.innerHTML = "";
+  $("frameBox").hidden = list.length > 0;  // the answers take the picture's place until the step changes
+  for (const e of list.slice(0, 3)) {
+    const b = document.createElement("button");
+    b.className = "ev";
+    b.innerHTML = `<img alt=""><div><div class="t"></div><div class="q"></div></div>`;
+    b.querySelector("img").src = e.frame_url;
+    const when = e.said_at ? `Said at ${e.said_at}` : `Video ${e.video_time}`;
+    b.querySelector(".t").textContent = e.step_number ? `Step ${e.step_number} · ${when}` : when;
+    b.querySelector(".q").textContent = e.quote ? `“${e.quote}”` : e.text;
+    // replay through the server (show_moment), so the host knows a clip is playing
+    const at = e.at_s !== undefined ? e.at_s : e.start_s;
+    b.onclick = () => callTool("show_moment", { session_id: snap && snap.session_id, at_seconds: at });
+    box.appendChild(b);
+  }
+}
+
+let stopTimer = null;
+function showMoment(d) {
+  $("moment").hidden = false;
+  const img = $("momentImg"), v = $("clip");
+  img.hidden = false; img.src = d.image_url;
+  v.hidden = true; v.pause();
+  $("momentCap").textContent = `From the video at ${d.video_time}`;
+  clearTimeout(stopTimer);
+  // still frame first, then the clip plays by itself
+  stopTimer = setTimeout(() => playClip(d.clip.video_url, d.clip.start_s, d.clip.end_s), 900);
+}
+function playClip(url, start, end) {
+  const v = $("clip"), img = $("momentImg");
+  if (!v.src.endsWith(url)) v.src = url;
+  const go = () => { img.hidden = true; v.hidden = false; v.currentTime = start; v.play().catch(() => {}); };
+  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
+  v.ontimeupdate = () => {
+    if (v.currentTime < end || v.paused) return;
+    v.pause();
+    clearTimeout(stopTimer);
+    stopTimer = setTimeout(closeMoment, 1500);  // back to the step by itself: nothing to tap with floury hands
+  };
+}
+function closeMoment() { clearTimeout(stopTimer); $("clip").pause(); $("moment").hidden = true; }
+
+// ---------------------------------------------------------------- the view's own buttons
+async function callTool(name, args) {
+  try {
+    const r = await request("tools/call", { name, arguments: args });
+    if (r && !r.isError) show(r);
+    return r;
+  } catch (e) { notify("notifications/message", { level: "error", data: String(e.message || e) }); }
+}
+const move = (action) => snap && callTool("move_step", { session_id: snap.session_id, action, expected_revision: snap.revision });
+$("backBtn").onclick = () => move("back");
+$("repeatBtn").onclick = () => move("repeat");
+$("nextBtn").onclick = () => move("next");
+$("replayBtn").onclick = () => snap && callTool("show_moment", { session_id: snap.session_id, step_number: snap.step.step_number });
+$("momentClose").onclick = closeMoment;
+
+(async () => {
+  const r = await request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "second-look-view", version: "0.2.0" },
+    appCapabilities: { availableDisplayModes: ["inline"] },
+  });
+  applyContext((r && r.hostContext) || {});
+  notify("ui/notifications/initialized");
+})();
+</script>
+</body>
+</html>

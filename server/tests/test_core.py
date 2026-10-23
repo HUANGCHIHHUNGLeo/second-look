@@ -116,3 +116,17 @@ def test_sessions_survive_and_timers_count_down():
     timers = store.timers_for(sid)
     assert len(timers) == 1 and 0 < timers[0]["remaining_s"] <= 120
     assert store.latest_active_session()["id"] == sid
+
+
+
+def test_session_tools_carry_the_mcp_apps_view():
+    import asyncio
+    from crv_guide_mcp import server
+    tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
+    for name in ["start_session", "get_session", "move_step", "ask_source", "show_moment", "set_timer"]:
+        assert tools[name].meta["ui"]["resourceUri"] == "ui://second-look/cook.html"
+    assert "ui" not in (tools["import_video"].meta or {})
+    contents = list(asyncio.run(server.mcp.read_resource("ui://second-look/cook.html")))
+    assert contents[0].mime_type == "text/html;profile=mcp-app"
+    html = contents[0].content
+    assert "ui/initialize" in html and "ui/notifications/tool-result" in html and "tools/call" in html

@@ -1,15 +1,29 @@
-// Second Look: the screen of a simulated Alexa+ device.
-// This page is a real MCP client (Streamable HTTP, protocol 2025-11-25) for the crv-guide
-// server: it renders state and handles the on-screen buttons itself. Spoken requests go to
-// the Strands agent (/api/turn), which calls the same MCP server with its own connection.
+// Second Look: a simulated Alexa+ host (Echo Show class screen).
+// It is two MCP things at once, the way Alexa+ is:
+//  - an MCP client of the crv-guide server (Streamable HTTP, protocol 2025-11-25), and
+//  - an MCP Apps host: the add-on's own UI is the server's ui:// resource, shown in a sandboxed
+//    iframe and driven over JSON-RPC postMessage (ui/initialize, ui/notifications/tool-result,
+//    tools/call proxied to the server).
+// Spoken requests go to the Strands agent (/api/turn), which calls the same server; every tool
+// result from that turn is forwarded to the add-on view.
 
 const $ = (id) => document.getElementById(id);
+const REC = new URLSearchParams(location.search).has("rec");
 const convoId = (() => {
   try { return localStorage.getItem("sl.convo") || (localStorage.setItem("sl.convo", crypto.randomUUID()), localStorage.getItem("sl.convo")); }
   catch { return crypto.randomUUID(); }
 })();
 
-// ---------------------------------------------------------------- MCP client
+// ---------------------------------------------------------------- fit the device to the window
+
+function fit() {
+  const s = Math.min((innerWidth - 40) / 1320, (innerHeight - 40) / 840);
+  $("device").style.transform = `scale(${s})`;
+}
+addEventListener("resize", fit);
+fit();
+
+// ---------------------------------------------------------------- MCP client (host -> server)
 
 class McpClient {
   constructor(url) { this.url = url; this.sid = null; this.version = null; this.id = 0; }
@@ -38,64 +52,148 @@ class McpClient {
   async initialize() {
     const r = await this.post({
       jsonrpc: "2.0", id: ++this.id, method: "initialize",
-      params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "second-look-screen", version: "0.1.0" } },
+      params: {
+        protocolVersion: "2025-11-25",
+        // MCP Apps: this host can render ui:// resources
+        capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
+        clientInfo: { name: "alexa-plus-simulator", version: "0.2.0" },
+      },
     });
     this.version = r.result.protocolVersion;
     await this.post({ jsonrpc: "2.0", method: "notifications/initialized" });
     return r.result;
   }
 
-  async call(name, args = {}) {
+  async rpc(method, params) {
     let r;
     try {
-      r = await this.post({ jsonrpc: "2.0", id: ++this.id, method: "tools/call", params: { name, arguments: args } });
+      r = await this.post({ jsonrpc: "2.0", id: ++this.id, method, params });
     } catch (e) {
       if (String(e.message) !== "session-expired") throw e;
       await this.initialize();
-      r = await this.post({ jsonrpc: "2.0", id: ++this.id, method: "tools/call", params: { name, arguments: args } });
+      r = await this.post({ jsonrpc: "2.0", id: ++this.id, method, params });
     }
     if (r.error) throw new Error(r.error.message);
     return r.result;
   }
+  call(name, args = {}) { return this.rpc("tools/call", { name, arguments: args }); }
 }
 
 let mcp, mcpBase, snap = null;
 
-// ---------------------------------------------------------------- rendering
+// ---------------------------------------------------------------- MCP Apps host (host <-> add-on view)
 
-function render(s) {
-  if (!s || !s.step) return;
-  snap = s;
-  $("emptyState").hidden = true;
-  $("stepCard").hidden = false;
-  const st = s.step;
-  $("stepNo").textContent = `Step ${st.step_number} of ${st.total_steps}`;
-  $("guideTitle").textContent = s.guide_title;
-  $("stepTitle").textContent = st.title;
-  $("stepSay").textContent = st.say;
-  $("stepLook").textContent = st.look_for;
-  const seen = $("stepSeen");
-  seen.hidden = !st.visual_note;
-  seen.querySelector("span:last-child").textContent = st.visual_note || "";
-  const chk = $("stepCheck");
-  chk.hidden = !(st.unverified && st.unverified.length);
-  chk.querySelector("span:last-child").textContent = (st.unverified || []).join(", ") + " (check the picture)";
-  if ($("frameImg").src !== st.frame_url) $("frameImg").src = st.frame_url;
-  $("frameTime").textContent = `from the video at ${st.frame_time}`;
-  $("replayBtn").onclick = () => playClip(st.clip.video_url, st.clip.start_s, st.clip.end_s, `${st.title} · video ${st.video_time}`);
-  const prog = $("progress");
-  prog.innerHTML = "";
-  for (let i = 1; i <= st.total_steps; i++) {
-    const d = document.createElement("i");
-    if ((s.completed_steps || []).includes(i)) d.className = "done";
-    if (i === st.step_number) d.className = "now";
-    prog.appendChild(d);
-  }
-  $("nextBox").hidden = !s.next_step_title;
-  $("nextTitle").textContent = s.next_step_title || "";
-  for (const b of ["backBtn", "repeatBtn", "nextBtn"]) $(b).disabled = false;
-  renderTimers(s.timers || []);
+const view = { frame: null, ready: false, queue: [] };
+const uiTools = new Set();
+
+async function mountView() {
+  if (view.frame) return;
+  const { tools } = await mcp.rpc("tools/list", {});
+  const bound = tools.filter((t) => t._meta && t._meta.ui && t._meta.ui.resourceUri);
+  bound.forEach((t) => uiTools.add(t.name));
+  if (!bound.length) return;
+  const uri = bound[0]._meta.ui.resourceUri;
+  const res = await mcp.rpc("resources/read", { uri });
+  const doc = res.contents.find((c) => (c.mimeType || "").startsWith("text/html"));
+  trace({ method: "resources/read", detail: `${uri} · ${doc.mimeType} · ${doc.text.length} bytes`, dir: "host → server" });
+  const f = $("addon");
+  f.srcdoc = doc.text;          // opaque origin: allow-scripts only, no same-origin
+  f.hidden = false;
+  $("launcher").hidden = true;
+  view.frame = f;
 }
+
+function hostContext() {
+  const r = $("canvas").getBoundingClientRect();
+  const scale = $("device").getBoundingClientRect().width / 1320;
+  return {
+    theme: "dark",
+    displayMode: "inline",
+    availableDisplayModes: ["inline"],
+    containerDimensions: { width: Math.round(r.width / scale), height: Math.round(r.height / scale) },
+    platform: "web",
+    deviceClass: "echo-show-15",   // Alexa+ hosts also report their device class
+    deviceCapabilities: { touch: true, hover: false },
+    locale: "en-US",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    userAgent: "second-look alexa-plus-simulator/0.2.0",
+    safeAreaInsets: { top: 0, right: 0, bottom: 0, left: 0 },
+  };
+}
+
+function postToView(msg) { view.frame.contentWindow.postMessage(msg, "*"); }
+function toView(method, params) {
+  const msg = { jsonrpc: "2.0", method, params };
+  if (!view.ready) { view.queue.push(msg); return; }
+  postToView(msg);
+  trace({ method, detail: method.endsWith("tool-input") ? JSON.stringify(params.arguments || {}) : "", dir: "host → view", ui: true });
+}
+function reply(id, result) { postToView({ jsonrpc: "2.0", id, result }); }
+function replyError(id, message, code = -32000) { postToView({ jsonrpc: "2.0", id, error: { code, message } }); }
+
+window.addEventListener("message", async (e) => {
+  if (!view.frame || e.source !== view.frame.contentWindow) return;
+  const m = e.data;
+  if (!m || m.jsonrpc !== "2.0" || !m.method) return;
+  trace({ method: m.method, detail: m.method === "tools/call" ? `${m.params.name} ${JSON.stringify(m.params.arguments || {})}` : m.method === "ui/initialize" ? `protocol ${m.params.protocolVersion}` : "", dir: "view → host", ui: true });
+  switch (m.method) {
+    case "ui/initialize":
+      reply(m.id, {
+        protocolVersion: "2026-01-26",
+        hostInfo: { name: "alexa-plus-simulator", version: "0.2.0" },
+        hostCapabilities: { serverTools: {}, serverResources: {}, logging: {}, sandbox: { csp: { resourceDomains: [mcpBase, "https://unpkg.com"] } } },
+        hostContext: hostContext(),
+      });
+      return;
+    case "ui/notifications/initialized":
+      view.ready = true;
+      for (const q of view.queue.splice(0)) toView(q.method, q.params);
+      return;
+    case "tools/call":
+      try {
+        const r = await mcp.call(m.params.name, m.params.arguments || {});
+        reply(m.id, r);
+        afterViewCall(m.params.name, r);
+      } catch (err) { replyError(m.id, String(err.message || err)); }
+      return;
+    case "resources/read":
+      try { reply(m.id, await mcp.rpc("resources/read", m.params)); } catch (err) { replyError(m.id, String(err.message || err)); }
+      return;
+    case "ui/request-display-mode":
+      reply(m.id, { mode: "inline" });
+      return;
+    case "notifications/message":
+      console.log("[add-on]", m.params);
+      return;
+    default:
+      if (m.id !== undefined) replyError(m.id, `Method not found: ${m.method}`, -32601);
+  }
+});
+
+// A tool result reaches the host: update the host's own state, then show it in the add-on view.
+function onToolResult(name, args, result, { forward = true } = {}) {
+  const d = (result && result.structuredContent) || {};
+  if (d.session_id && d.step) snap = d;
+  if (d.timers) renderTimers(d.timers);
+  if (name === "show_moment" && d.clip) quietFor(0.9 + (d.clip.end_s - d.clip.start_s) + 0.5);
+  if (forward && uiTools.has(name) && view.frame) {
+    toView("ui/notifications/tool-input", { arguments: args || {} });
+    toView("ui/notifications/tool-result", result);
+  }
+}
+
+// The view called a tool itself (its Back / Next buttons, an evidence card): Alexa says the result.
+function afterViewCall(name, result) {
+  onToolResult(name, {}, result, { forward: false });
+  const d = (result && result.structuredContent) || {};
+  if (name === "move_step" && d.speak) {
+    $("youSaid").textContent = "(tapped on the screen)";
+    $("alexaSaid").textContent = d.speak;
+    speak(d.speak);
+  }
+}
+
+// ---------------------------------------------------------------- timers (Alexa's own)
 
 let timers = [];
 const alerted = new Set();
@@ -111,15 +209,15 @@ function tickTimers() {
     const left = (t.due - Date.now()) / 1000;
     const el = document.createElement("span");
     el.className = "chip" + (left <= 0 ? " done" : "");
-    el.textContent = `⏱ ${t.label} ${left <= 0 ? "done" : fmt(left)}`;
+    el.innerHTML = `<i class="ph-bold ph-timer"></i><span></span>`;
+    el.querySelector("span").textContent = `${t.label} ${left <= 0 ? "done" : fmt(left)}`;
     box.appendChild(el);
     if (left <= 0 && !alerted.has(t.timer_id) && Date.now() - t.due < 60 * 60 * 1000) {
       alerted.add(t.timer_id);
       ring(`${t.label}: time's up.`);
     }
   }
-  const now = new Date();
-  $("clock").textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 setInterval(tickTimers, 1000);
 
@@ -139,52 +237,6 @@ function ring(text) {
 }
 $("alarmOk").onclick = () => { $("alarm").hidden = true; };
 
-function showEvidence(data) {
-  const box = $("evidence");
-  box.innerHTML = "";
-  for (const e of (data.evidence || []).slice(0, 3)) {
-    const el = document.createElement("div");
-    el.className = "ev";
-    el.innerHTML = `<img alt=""><div><div class="t"></div><div class="q"></div></div>`;
-    el.querySelector("img").src = e.frame_url;
-    const when = e.said_at ? `said at ${e.said_at}` : `video ${e.video_time}`;
-    el.querySelector(".t").textContent = e.step_number ? `step ${e.step_number} · ${when}` : when;
-    el.querySelector(".q").textContent = e.quote && !e.step_number ? `“${e.quote}”` : e.text;
-    const c = e.clip || { start_s: e.start_s, end_s: e.start_s + 12 };
-    el.onclick = () => snap && playClip(snap.step.clip.video_url, c.start_s, c.end_s, `From the video at ${e.said_at || e.video_time}`);
-    box.appendChild(el);
-  }
-}
-
-function showMoment(data) {
-  $("moment").hidden = false;
-  const clip = $("clip");
-  clip.pause(); clip.hidden = true;
-  const img = $("momentImg");
-  img.hidden = false; img.src = data.image_url;
-  $("momentCap").textContent = `From the video at ${data.video_time}`;
-  clip.dataset.src = data.clip.video_url; clip.dataset.start = data.clip.start_s; clip.dataset.end = data.clip.end_s;
-}
-
-function playClip(url, start, end, caption) {
-  $("moment").hidden = false;
-  $("momentImg").hidden = true;
-  const v = $("clip");
-  hfPause();
-  let resumed = false;
-  const back = () => { if (!resumed) { resumed = true; hfResume(); } };
-  v.addEventListener("pause", back, { once: true });
-  v.addEventListener("ended", back, { once: true });
-  v.hidden = false;
-  if (!v.src.endsWith(url)) v.src = url;
-  $("momentCap").textContent = caption || "";
-  const go = () => { v.currentTime = start; v.play().catch(() => {}); };
-  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
-  v.ontimeupdate = () => { if (v.currentTime >= end) v.pause(); };
-}
-$("momentClose").onclick = () => { $("clip").pause(); $("moment").hidden = true; };
-$("momentImg").onclick = () => { const c = $("clip"); playClip(c.dataset.src, +c.dataset.start, +c.dataset.end, $("momentCap").textContent); };
-
 // ---------------------------------------------------------------- voice
 
 let voice = null;
@@ -196,7 +248,6 @@ if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged 
 
 function setLight(state) { $("lightbar").className = "lightbar" + (state ? " " + state : ""); }
 
-const REC = new URLSearchParams(location.search).has("rec");
 function speak(text) {
   if (REC || !("speechSynthesis" in window) || !text) return Promise.resolve();
   stopListening();
@@ -215,6 +266,7 @@ function speak(text) {
   });
 }
 
+// push-to-talk
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let rec = null, listening = false;
 function startListening() {
@@ -245,7 +297,8 @@ document.addEventListener("keydown", (e) => {
 let handsFree = false, hfRec = null, hfPaused = 0, hfAwaitUntil = 0;
 const WAKE = /^\s*(?:hey\s+|ok(?:ay)?\s+)?alexa\b[\s,.!?]*(.*)$/i;
 function hfStart() {
-  if (!handsFree || hfPaused > 0 || hfRec || !SR) return;
+  if (!handsFree || hfPaused > 0 || hfRec) return;
+  if (REC || !SR) { setLight("idle"); return; }  // demo recording: requests are typed through window.__say
   const r = new SR();
   r.lang = "en-US"; r.continuous = true; r.interimResults = true;
   r.onresult = (ev) => {
@@ -267,6 +320,7 @@ function hfStart() {
 function hfStop() { const r = hfRec; hfRec = null; if (r) { r.onend = null; try { r.abort(); } catch {} } }
 function hfPause() { hfPaused++; hfStop(); }
 function hfResume() { hfPaused = Math.max(0, hfPaused - 1); if (hfPaused === 0 && handsFree) setTimeout(hfStart, 300); }
+function quietFor(seconds) { hfPause(); setTimeout(hfResume, seconds * 1000); }  // a clip is playing in the view
 function hfHeard(text) {
   const m = text.match(WAKE);
   const cmd = m ? m[1].trim() : Date.now() < hfAwaitUntil ? text : "";
@@ -278,33 +332,33 @@ function hfHeard(text) {
 // Things a device does by itself, without asking the agent.
 function localCommand(cmd) {
   const c = cmd.toLowerCase().replace(/[.!?,]/g, "").trim();
-  if (/^(stop|cancel|pause|close( (that|it|the video))?|never ?mind)$/.test(c)) {
+  if (/^(stop|cancel|never ?mind|be quiet)$/.test(c)) {
     $("youSaid").textContent = cmd;
-    speechSynthesis.cancel(); $("clip").pause(); $("moment").hidden = true;
+    speechSynthesis.cancel();
     return true;
   }
-  if (/^(replay( (that|this|it|the clip))?|play (that|it) again|show me again)$/.test(c)) {
+  if (/^(replay( (that|this|it|the clip))?|play (that|it) again|show me again)$/.test(c) && snap) {
     $("youSaid").textContent = cmd;
-    const v = $("clip");
-    if (v.dataset.src) playClip(v.dataset.src, +v.dataset.start, +v.dataset.end, $("momentCap").textContent);
-    else if (snap) { const st = snap.step; playClip(st.clip.video_url, st.clip.start_s, st.clip.end_s, `${st.title} · video ${st.video_time}`); }
+    const args = { session_id: snap.session_id, step_number: snap.step.step_number };
+    mcp.call("show_moment", args).then((r) => onToolResult("show_moment", args, r));
     return true;
   }
   return false;
 }
 function setHandsFree(on) {
-  handsFree = on && !!SR;
+  handsFree = on && (!!SR || REC);
   $("hfBtn").classList.toggle("on", handsFree);
-  $("hfBtn").textContent = handsFree ? "Hands-free on" : "Hands-free";
+  $("hfBtn").querySelector("span").textContent = handsFree ? "Hands-free on" : "Hands-free";
   $("micBtn").classList.toggle("hf", handsFree);
   if (handsFree) { $("youSaid").textContent = "Say “Alexa, next”"; hfStart(); }
   else { hfStop(); setLight(""); }
-  if (on && !SR) $("alexaSaid").textContent = "This browser has no speech recognition. Use Chrome for hands-free mode.";
+  if (on && !SR && !REC) $("alexaSaid").textContent = "This browser has no speech recognition. Use Chrome for hands-free mode.";
 }
 $("hfBtn").onclick = () => setHandsFree(!handsFree);
 
 // ---------------------------------------------------------------- talking to the agent
 
+const pendingMoments = [];  // a moment is shown after Alexa has finished answering, so the clip never talks over her
 async function ask(text) {
   text = text.replace(/^\s*(hey\s+)?alexa[,.!]?\s*/i, "").trim();
   if (!text) return;
@@ -314,7 +368,6 @@ async function ask(text) {
 async function askAgent(text) {
   $("youSaid").textContent = text;
   $("alexaSaid").textContent = "…";
-  $("evidence").innerHTML = "";
   setLight("think");
   let out;
   try {
@@ -325,43 +378,18 @@ async function askAgent(text) {
   }
   setLight("");
   for (const ev of out.events || []) {
-    const d = ev.data || {};
-    if (d.session_id && d.step) render(d);
-    if (ev.tool === "ask_source") showEvidence(d);
-    if (ev.tool === "show_moment" && d.image_url) showMoment(d);
-    if (ev.tool === "set_timer" && d.timers) renderTimers(d.timers);
-    if (ev.tool === "cancel_timer" && d.timers) renderTimers(d.timers);
+    const result = { content: ev.text ? [{ type: "text", text: ev.text }] : [], structuredContent: ev.data || {}, isError: ev.status === "error" };
+    if (ev.tool === "show_moment") pendingMoments.push([ev.tool, ev.input, result]);
+    else onToolResult(ev.tool, ev.input, result);
   }
   $("alexaSaid").textContent = out.reply || "";
-  await refresh();
   await speak(out.reply);
+  if (!REC) flushMoments();
 }
+function flushMoments() { for (const [t, a, r] of pendingMoments.splice(0)) onToolResult(t, a, r); }
 $("typeForm").onsubmit = (e) => { e.preventDefault(); const t = $("typeInput").value; $("typeInput").value = ""; ask(t); };
 
-// ---------------------------------------------------------------- direct MCP actions (buttons)
-
-async function refresh() {
-  if (!mcp) return;
-  try {
-    const r = await mcp.call("get_session", snap ? { session_id: snap.session_id } : {});
-    if (!r.isError) render(r.structuredContent);
-  } catch {}
-}
-
-async function move(action) {
-  if (!snap) return;
-  const r = await mcp.call("move_step", { session_id: snap.session_id, action, expected_revision: snap.revision });
-  if (!r.isError) {
-    render(r.structuredContent);
-    $("youSaid").textContent = action === "back" ? "(tapped Back)" : action === "repeat" ? "(tapped Repeat)" : "(tapped Next)";
-    $("alexaSaid").textContent = r.structuredContent.step.say;
-    $("evidence").innerHTML = "";
-    speak(r.structuredContent.step.say);
-  }
-}
-$("backBtn").onclick = () => move("back");
-$("repeatBtn").onclick = () => move("repeat");
-$("nextBtn").onclick = () => move("next");
+// ---------------------------------------------------------------- loading a video
 
 async function importAndStart(source) {
   const imp = $("importing");
@@ -379,8 +407,10 @@ async function importAndStart(source) {
   }
   const g = r.structuredContent.guide;
   imp.textContent = `Ready: ${g.title} (${g.steps.length} steps).`;
-  const s = await mcp.call("start_session", { guide_id: g.guide_id });
-  render(s.structuredContent);
+  await mountView();
+  const args = { guide_id: g.guide_id };
+  const s = await mcp.call("start_session", args);
+  onToolResult("start_session", args, s);
   $("alexaSaid").textContent = `I watched the video and split it into ${g.steps.length} steps. Say next when you're ready.`;
   speak($("alexaSaid").textContent);
 }
@@ -388,38 +418,54 @@ $("loadSample").onclick = () => importAndStart("sample:pasta");
 $("urlForm").onsubmit = (e) => { e.preventDefault(); const u = $("urlInput").value.trim(); if (u) importAndStart(u); };
 
 // ---------------------------------------------------------------- MCP trace drawer
+// Server rows come from the server's /trace (both MCP clients: this host and the Strands agent);
+// add-on rows are the MCP Apps messages between this host and the view.
 
 let traceSince = 0, traceTimer = null;
 const clientBySession = {};
+const localRows = [];
+function trace(row) {
+  const r = { ts: Date.now() / 1000, ...row };
+  localRows.push(r);
+  if (!$("trace").hidden) addRow(r);
+}
+function addRow(r) {
+  const box = $("traceRows");
+  const el = document.createElement("div");
+  el.className = "tr" + (r.ui ? " ui" : r.dir && r.dir.startsWith("server") ? " res" : "");
+  const t = new Date(r.ts * 1000).toLocaleTimeString([], { hour12: false });
+  el.innerHTML = `<div class="m"></div><div class="d"></div><div class="a"></div>`;
+  el.querySelector(".m").textContent = r.method + (r.tool ? `  ${r.tool}` : "");
+  el.querySelector(".d").textContent = `${t} · ${r.dir || ""}${r.who ? " · " + r.who : ""}`;
+  el.querySelector(".a").textContent = r.detail || "";
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+function serverRow(r) {
+  if (r.client && r.session) clientBySession[r.session] = r.client;
+  const detail = [];
+  if (r.requested_protocol_version) detail.push(`requests protocol ${r.requested_protocol_version}`);
+  if (r.negotiated_protocol_version) detail.push(`negotiated protocol ${r.negotiated_protocol_version} · server ${r.server}`);
+  if (r.header_protocol_version) detail.push(`MCP-Protocol-Version: ${r.header_protocol_version}`);
+  if (r.http_status) detail.push(`HTTP ${r.http_status}`);
+  if (r.arguments) detail.push(JSON.stringify(r.arguments));
+  return { ts: r.ts, method: r.method, tool: r.tool, dir: r.direction, who: r.client || clientBySession[r.session] || "", detail: detail.join("\n") };
+}
 async function pollTrace() {
   try {
     const rows = await (await fetch(`${mcpBase}/trace?since=${traceSince}`)).json();
-    const box = $("traceRows");
-    for (const r of rows) {
-      traceSince = Math.max(traceSince, r.ts);
-      if (r.method === "initialize" && r.client) clientBySession["pending:" + r.client] = true;
-      if (r.client && r.session) clientBySession[r.session] = r.client;
-      const who = r.client || clientBySession[r.session] || "";
-      const el = document.createElement("div");
-      const isRes = r.direction && r.direction.startsWith("server");
-      el.className = "tr" + (isRes ? " res" : "");
-      const t = new Date(r.ts * 1000).toLocaleTimeString([], { hour12: false });
-      let main = r.method + (r.tool ? `  ${r.tool}` : "");
-      let detail = [];
-      if (r.requested_protocol_version) detail.push(`requests protocol ${r.requested_protocol_version}`);
-      if (r.negotiated_protocol_version) detail.push(`negotiated protocol ${r.negotiated_protocol_version} · server ${r.server}`);
-      if (r.header_protocol_version) detail.push(`MCP-Protocol-Version: ${r.header_protocol_version}`);
-      if (r.http_status) detail.push(`HTTP ${r.http_status}`);
-      el.innerHTML = `<div class="m"></div><div class="d"></div><div class="a"></div>`;
-      el.querySelector(".m").textContent = main;
-      el.querySelector(".d").textContent = `${t} · ${r.direction || ""}${who ? " · " + who : ""}${r.session ? " · session " + r.session : ""}`;
-      el.querySelector(".a").textContent = [detail.join(" · "), r.arguments ? JSON.stringify(r.arguments) : ""].filter(Boolean).join("\n");
-      box.appendChild(el);
-    }
-    if (rows.length) box.scrollTop = box.scrollHeight;
+    for (const r of rows) { traceSince = Math.max(traceSince, r.ts); addRow(serverRow(r)); }
   } catch {}
 }
-$("traceBtn").onclick = () => { $("trace").hidden = false; pollTrace(); traceTimer = traceTimer || setInterval(pollTrace, 1000); };
+$("traceBtn").onclick = async () => {
+  $("trace").hidden = false;
+  $("traceRows").innerHTML = "";
+  // history first: server traffic and add-on (MCP Apps) traffic, in time order
+  let rows = [];
+  try { rows = (await (await fetch(`${mcpBase}/trace?since=0`)).json()).map((r) => { traceSince = Math.max(traceSince, r.ts); return serverRow(r); }); } catch {}
+  for (const r of [...rows, ...localRows].sort((a, b) => a.ts - b.ts).slice(-60)) addRow(r);
+  traceTimer = traceTimer || setInterval(pollTrace, 1000);
+};
 $("traceClose").onclick = () => { $("trace").hidden = true; clearInterval(traceTimer); traceTimer = null; };
 
 // ---------------------------------------------------------------- boot
@@ -436,7 +482,8 @@ $("traceClose").onclick = () => { $("trace").hidden = true; clearInterval(traceT
   }
   const r = await mcp.call("get_session", {});
   if (!r.isError) {
-    render(r.structuredContent);
+    await mountView();
+    onToolResult("get_session", {}, r);
     $("alexaSaid").textContent = `Welcome back. You're on step ${r.structuredContent.step.step_number}: ${r.structuredContent.step.title}.`;
   }
 })();
@@ -449,7 +496,6 @@ const _logEvt = (type, text) => window.__log.push({ type, text, t: Date.now() })
 window.__say = async (text, ms = 1600) => {
   _logEvt("user", text);
   setLight("listen"); $("micBtn").classList.add("on");
-  $("evidence").innerHTML = "";
   const words = text.split(" ");
   for (let i = 1; i <= words.length; i++) {
     $("youSaid").textContent = words.slice(0, i).join(" ");
@@ -459,3 +505,4 @@ window.__say = async (text, ms = 1600) => {
   await ask(text);
   _logEvt("reply", $("alexaSaid").textContent);
 };
+window.__flushMoments = flushMoments;  // the recorder calls this once Alexa's recorded line has finished

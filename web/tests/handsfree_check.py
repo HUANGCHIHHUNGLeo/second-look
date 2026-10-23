@@ -81,8 +81,10 @@ def main() -> int:
             page.on("request", lambda r: turns.append(r.post_data or "") if r.url.endswith("/api/turn") else None)
             page.goto("http://127.0.0.1:8770/", wait_until="networkidle")
             page.click("#loadSample")
-            page.wait_for_selector("#stepCard:not([hidden])", timeout=60000)
-            step = lambda: page.evaluate("() => document.getElementById('stepNo').textContent")  # noqa: E731
+            view = page.frame_locator("#addon")  # the add-on's own UI: the server's ui:// resource
+            view.locator("#stepCard:not([hidden])").wait_for(timeout=60000)
+            frame = next(f for f in page.frames if f != page.main_frame)
+            step = lambda: frame.evaluate("() => document.getElementById('stepNo').textContent")  # noqa: E731
             listening = lambda: page.evaluate("() => window.__sr.listening()")  # noqa: E731
 
             check("starts on step 1", step().startswith("Step 1"))
@@ -95,7 +97,7 @@ def main() -> int:
             check("ignores speech that is not addressed to Alexa", not turns and step().startswith("Step 1"))
 
             page.evaluate("() => window.__sr.say('Alexa, next')")
-            page.wait_for_function("() => document.getElementById('stepNo').textContent.startsWith('Step 2')", timeout=15000)
+            frame.wait_for_function("() => document.getElementById('stepNo').textContent.startsWith('Step 2')", timeout=15000)
             check("'Alexa, next' moves to step 2 with no touch", step().startswith("Step 2"))
             stops = page.evaluate("() => window.__sr.stops")
             check("stopped listening while the agent worked and Alexa talked", stops >= 1)
@@ -105,18 +107,21 @@ def main() -> int:
             page.evaluate("() => window.__sr.say('Alexa')")
             time.sleep(0.4)
             page.evaluate("() => window.__sr.say('go back')")
-            page.wait_for_function("() => document.getElementById('stepNo').textContent.startsWith('Step 1')", timeout=15000)
+            frame.wait_for_function("() => document.getElementById('stepNo').textContent.startsWith('Step 1')", timeout=15000)
             check("'Alexa' ... 'go back' works as two utterances", step().startswith("Step 1"))
             page.wait_for_function("() => window.__sr.listening()", timeout=5000)
 
             page.evaluate("() => window.__sr.say('Alexa, replay that')")
-            page.wait_for_selector("#moment:not([hidden])", timeout=5000)
-            time.sleep(0.5)
-            check("'Alexa, replay that' plays the step's clip", page.is_visible("#clip"))
+            view.locator("#moment:not([hidden])").wait_for(timeout=8000)
+            time.sleep(1.6)
+            check("'Alexa, replay that' plays the step's clip in the add-on view", frame.evaluate("() => !document.getElementById('clip').hidden && !document.getElementById('clip').paused"))
             check("does not listen while the clip plays (it would hear the video)", not listening())
-            page.click("#momentClose")
-            page.wait_for_function("() => window.__sr.listening()", timeout=5000)
-            check("listens again after the clip is closed", listening())
+            page.wait_for_function("() => window.__sr.listening()", timeout=20000)
+            check("listens again once the clip is over", listening())
+
+            view.locator("#nextBtn").click()  # the view's own button: tools/call through the host
+            frame.wait_for_function("() => document.getElementById('stepNo').textContent.startsWith('Step 2')", timeout=15000)
+            check("the add-on's Next button moves the step through the host (MCP Apps tools/call)", step().startswith("Step 2"))
 
             page.click("#hfBtn")
             time.sleep(0.5)

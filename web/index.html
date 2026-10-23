@@ -3,91 +3,63 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Second Look · Alexa+ experience simulation</title>
+<title>Second Look · Alexa+ add-on</title>
+<link rel="icon" href="/web/logo.svg">
 <link rel="stylesheet" href="/web/style.css">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 </head>
 <body>
-<div class="stage">
+<div class="stage" id="stage">
   <div class="device" id="device">
     <div class="screen">
-      <header class="topbar">
+      <!-- Host chrome: what Alexa+ itself draws around an add-on -->
+      <header class="statusbar">
         <div class="brand">
-          <span class="logo" aria-hidden="true"></span>
-          <span class="name">Second Look</span>
-          <span class="sim">Alexa+ experience simulation</span>
+          <span class="ring" aria-hidden="true"></span>
+          <span class="addon"><img src="/web/logo.svg" alt=""> Second Look</span>
+          <span class="sim">Alexa+ host simulation · add-on view over MCP Apps</span>
         </div>
         <div class="status">
           <div class="timer-chips" id="timerChips"></div>
           <span class="clock" id="clock">--:--</span>
-          <button class="ghost small" id="traceBtn" title="Show the MCP traffic">MCP trace</button>
+          <button class="chipbtn" id="traceBtn" title="Show the MCP traffic"><i class="ph ph-brackets-curly"></i>MCP trace</button>
         </div>
       </header>
 
-      <main class="main" id="main">
-        <section class="step" id="stepPanel">
-          <div class="empty" id="emptyState">
-            <h1>Follow a cooking video, hands-free.</h1>
-            <p>Second Look watches the video first, then walks you through it one step at a time. Ask what it should look like and it shows you the exact moment.</p>
-            <div class="load">
-              <button class="primary" id="loadSample">Load the sample video</button>
-              <form id="urlForm" class="url"><input id="urlInput" placeholder="…or paste a video URL" autocomplete="off"><button class="ghost" type="submit">Watch</button></form>
-            </div>
-            <p class="importing" id="importing" hidden></p>
+      <main class="canvas" id="canvas">
+        <section class="launcher" id="launcher">
+          <img class="mark" src="/web/logo.svg" alt="">
+          <h1>Follow a cooking video, hands‑free.</h1>
+          <p>Second Look watches the video first, then walks you through it one step at a time and shows you the moment that answers your question.</p>
+          <div class="load">
+            <button class="primary" id="loadSample"><i class="ph-fill ph-play-circle"></i>Load the sample video</button>
+            <form id="urlForm" class="url"><input id="urlInput" placeholder="…or paste a video link" autocomplete="off" aria-label="Video link"><button class="ghost" type="submit">Watch</button></form>
           </div>
-
-          <div class="card" id="stepCard" hidden>
-            <div class="text">
-              <div class="kicker"><span id="stepNo">Step 1 of 1</span><span class="dot">·</span><span id="guideTitle"></span></div>
-              <div class="progress" id="progress"></div>
-              <h1 id="stepTitle"></h1>
-              <p class="say" id="stepSay"></p>
-              <p class="look"><span class="tag ok">Looks right when</span><span id="stepLook"></span></p>
-              <p class="seen" id="stepSeen" hidden><span class="tag warm">Only in the picture</span><span></span></p>
-              <p class="seen" id="stepCheck" hidden><span class="tag check">Not said in the video</span><span></span></p>
-            </div>
-            <figure class="frame" id="frameBox">
-              <img id="frameImg" alt="Frame from the video">
-              <figcaption><span class="pill" id="frameTime">from the video at 0:00</span><button class="pill btn" id="replayBtn">▶ Replay this part</button></figcaption>
-            </figure>
-          </div>
+          <p class="importing" id="importing" hidden></p>
         </section>
-
-        <aside class="side">
-          <div class="talk" id="talk">
-            <div class="you" id="youSaid"></div>
-            <div class="alexa" id="alexaSaid">Tap the mic and ask anything about the video.</div>
-            <div class="next" id="nextBox" hidden><span>Up next</span><b id="nextTitle"></b></div>
-          </div>
-          <div class="evidence" id="evidence"></div>
-        </aside>
+        <!-- The add-on's own UI: a ui:// resource from the MCP server, sandboxed the way Alexa+ does -->
+        <iframe id="addon" title="Second Look add-on" sandbox="allow-scripts" hidden></iframe>
+        <div class="alarm" id="alarm" hidden><i class="ph-fill ph-bell-ringing"></i><b id="alarmText"></b><button class="primary" id="alarmOk">OK</button></div>
       </main>
 
-      <footer class="bottombar">
-        <div class="controls">
-          <button class="ghost" id="backBtn" disabled>Back</button>
-          <button class="ghost" id="repeatBtn" disabled>Repeat</button>
-          <button class="ghost" id="nextBtn" disabled>Next</button>
-          <button class="ghost hf" id="hfBtn" title="Keep listening for “Alexa, …” so you never touch the screen">Hands-free</button>
+      <!-- Host voice bar: what you said, what Alexa says -->
+      <footer class="voicebar">
+        <div class="said">
+          <div class="you" id="youSaid"></div>
+          <div class="alexa" id="alexaSaid">Tap the mic, or turn on hands-free and say "Alexa, …"</div>
         </div>
-        <button class="mic" id="micBtn" aria-label="Talk"><span></span></button>
-        <form class="type" id="typeForm"><input id="typeInput" placeholder="Type instead of talking" autocomplete="off"></form>
+        <div class="voice-controls">
+          <button class="hf" id="hfBtn" title="Keep listening for “Alexa, …” so you never touch the screen"><i class="ph ph-ear"></i><span>Hands-free</span></button>
+          <button class="mic" id="micBtn" aria-label="Talk"><i class="ph-fill ph-microphone"></i></button>
+          <form class="type" id="typeForm"><input id="typeInput" placeholder="Type instead of talking" autocomplete="off" aria-label="Type a request"></form>
+        </div>
         <div class="lightbar" id="lightbar"></div>
       </footer>
-
-      <div class="moment" id="moment" hidden>
-        <div class="moment-inner">
-          <video id="clip" playsinline></video>
-          <img id="momentImg" alt="">
-          <div class="moment-cap"><span id="momentCap"></span><button class="ghost small" id="momentClose">Close</button></div>
-        </div>
-      </div>
-
-      <div class="alarm" id="alarm" hidden><b id="alarmText"></b><button class="primary" id="alarmOk">OK</button></div>
     </div>
   </div>
 
   <aside class="trace" id="trace" hidden>
-    <div class="trace-head"><b>MCP trace</b><span>Streamable HTTP · this page and the Strands agent are both MCP clients</span><button class="ghost small" id="traceClose">Close</button></div>
+    <div class="trace-head"><b>MCP trace</b><span>Streamable HTTP to the server, MCP Apps postMessage to the add-on view</span><button class="ghost small" id="traceClose">Close</button></div>
     <div class="trace-rows" id="traceRows"></div>
   </aside>
 </div>

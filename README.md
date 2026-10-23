@@ -2,17 +2,19 @@
 
 **Alexa+ follows a cooking video with you, hands-free, because it actually watched the video.**
 
-Cooking from a video is awkward when your hands are covered in flour: the video keeps going, you can't scrub back, a quantity is said once and gone, and you never know if yours looks right. Recipe apps turn the *captions* into a text recipe. Second Look gives Alexa+ the video itself:
+Cooking from a video is awkward when your hands are covered in flour: the video keeps going, you can't scrub back, a quantity is said once and gone, and you never know if yours looks right. Recipe tools can turn the *captions* into a text recipe. Second Look gives Alexa+ the video itself:
 
-- **"How much water?"** It answers from what was said *and when*: "about three quarters of a cup to start, then a little at a time; that's at 1:24 in the video", with the evidence on screen.
-- **"What should the dough look like now?"** It shows the exact frame from the video for that step and describes details the narrator never says (hand position, thickness, texture).
+- **"Alexa, how much water did she use?"** It answers from what was said *and when*: "about three quarters of a cup of cold water to start; she says it at 1:24", with the evidence on screen and the moment ready to replay.
+- **"Alexa, how much sugar?"** "The video never mentions sugar." Questions about things the video doesn't cover get that answer, not the nearest other number.
+- **"Show me how she makes the shape with her thumb."** It finds the moment she describes the move, shows the frame a beat later and replays the clip, and describes details the narrator never says (hand position, thickness, texture).
 - **"Next." "Go back." "Repeat that."** One step at a time, read aloud, never skipping ahead on its own.
 - **"Set a timer for the rest."** The 30-minute rest from the video becomes a real timer.
-- **"I'm back, where was I?"** Close the app, restart everything, come back tomorrow: your step and your timers are still there.
+- **"I'm back, where was I?"** Close the app, restart everything, come back later: your step and your timers are still there.
+- **Hands-free mode.** Like an Echo Show, the screen keeps listening and acts only on sentences that start with "Alexa"; it stops listening while Alexa talks or a clip plays, so it never hears itself or the video.
 
 Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · Mini challenges: **AWS Builder** (Strands Agents SDK), **Open Source**.
 
-> Demo video (2:41): https://youtu.be/4LWIURQBZ9w
+> Demo video: https://youtu.be/4LWIURQBZ9w
 
 ![Second Look screen](docs/screen.png)
 
@@ -56,7 +58,7 @@ Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so
 | `show_moment(query? \| at_seconds? \| step_number?)` | The exact frame (grabbed from the source video at that second) + a replayable clip range. `query` finds the moment from a description ("pressing the thumb into the dough"). |
 | `set_timer(seconds, label, request_id?)` / `cancel_timer` | Timers stored as absolute deadlines; idempotent with `request_id`. |
 
-Every step in a guide keeps its evidence: the frame number it was written from, its time range, the transcript lines behind each quantity, and a `visual_note` for something visible in the frames that the narration never says. The guide is validated against the real video before it is stored (frame numbers must exist and fall inside the step, times are clamped, line numbers must exist), so it can only cite things that are in the video.
+Every step in a guide keeps its evidence: the frame number it was written from, its time range, the transcript lines behind each quantity, and a `visual_note` for something visible in the frames that the narration never says. The guide is checked against the real video before it is stored: frame numbers must exist and fall inside the step, times are clamped, line numbers must exist, and every number in an instruction (amounts, durations, temperatures) must appear in the narration the step cites or the lines spoken during it (`checks.py`). Numbers that aren't said are flagged on the card ("Not said in the video"), and a timer is only offered for a duration that is said. On the sample, 19 of 20 numbers are in the narration; the one that isn't is "four pieces", which she shows as "cut it in half and then half again".
 
 ---
 
@@ -74,7 +76,7 @@ cp .env.example .env                                       # add OPENAI_API_KEY 
 
 Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our test a 2.5-minute video took about 5 minutes end to end on a busy evening).
 
-Tests: `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation against the video, evidence search, sessions, revision checks, idempotent timers).
+Tests: `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation and number checks against the video, evidence search, ingredients the video never mentions, sessions, revision checks, idempotent timers) and `.venv/bin/python web/tests/handsfree_check.py` (hands-free mode in a real browser with a scripted recognizer).
 
 Use the server from any MCP client: `.venv/bin/crv-guide-mcp --port 8765`, then connect to `http://127.0.0.1:8765/mcp` (Streamable HTTP). Smoke test with a real MCP client: `.venv/bin/python server/tests/smoke_client.py`.
 
@@ -104,8 +106,9 @@ The conversation runs on the **Strands Agents SDK** (AWS's open-source agent fra
 
 - Not tested on a real Alexa+ device or console: those tools are select-partners only. The simulated screen speaks MCP exactly as described above.
 - Timers ring while the screen is open; after a restart they show "done" or the correct time left (deadlines are stored), but there are no background notifications.
-- Voice uses the browser's Web Speech API (Chrome). Typing works everywhere.
-- Answers are only as good as what the video shows and says; when the search finds nothing the assistant says the video doesn't cover it.
+- Voice uses the browser's Web Speech API (Chrome). Typing works everywhere. Hands-free mode was tested in Chromium with a scripted speech recognizer (`web/tests/handsfree_check.py`), not yet in a noisy kitchen; real recognition will sometimes mishear.
+- Answers are only as good as what the video shows and says; when the search finds nothing the assistant says the video doesn't cover it. Answer wording comes from a model; the numbers it may use come from the quoted transcript line.
+- Tested on two narrated cooking videos so far (the sample and a goat-chops recipe). The guide writer is written for cooking; a 2.5-minute video took about 5 minutes to import on a busy evening.
 
 ## Credits
 

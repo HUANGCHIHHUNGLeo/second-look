@@ -102,14 +102,36 @@ def record_segment(browser, name, actions):
 
 
 USER_LINES = [
-    "Next.",
-    "How much water did she use?",
-    "Set a timer for the rest.",
-    "Skip to the resting step.",
-    "I'm back. Where was I?",
-    "Skip ahead to shaping the pasta.",
-    "Show me how she makes the shape with her thumb.",
+    "Alexa, how much water did she use?",
+    "Alexa, how much sugar does she add?",
+    "Alexa, skip to the resting step.",
+    "Alexa, set a timer for the rest.",
+    "Alexa, I'm back. Where was I?",
+    "Alexa, skip ahead to shaping the pasta.",
+    "Alexa, show me how she makes the shape with her thumb.",
+    "Alexa, how long does she cook each side?",
 ]
+NEW_VIDEO = "https://upload.wikimedia.org/wikipedia/commons/3/36/Goat_Chops_Recipe_Grill_Pan_-_How_To_Cook_Goat_Chops_Recipe.webm"
+DATA_NEW = Path(os.environ.get("DEMO_DATA_NEW", str(DATA) + "-new"))
+
+
+def hands_free_on(page, seg, t0):
+    page.click("#hfBtn")
+    mark(seg, t0, "handsfree")
+    time.sleep(1.2)
+
+
+def replay_card(page, seg, t0, word, dur):
+    """Tap the evidence card that quotes the answer and let that part of the video play."""
+    cards = page.locator(".ev")
+    idx = next((i for i in range(cards.count()) if word in cards.nth(i).inner_text().lower()), 0)
+    cards.nth(idx).click()
+    time.sleep(0.5)
+    st = page.evaluate("() => document.getElementById('clip').currentTime")
+    mark(seg, t0, "clip", start_s=st, dur=dur)
+    time.sleep(dur)
+    page.click("#momentClose")
+    time.sleep(0.6)
 
 
 def seg1(page, seg, t0):
@@ -119,24 +141,12 @@ def seg1(page, seg, t0):
     page.wait_for_selector("#stepCard:not([hidden])", timeout=60000)
     time.sleep(0.3)
     alexa_line(page, seg, t0)
-    say(page, seg, t0, "Next.")
-    say(page, seg, t0, "How much water did she use?")
-    # replay the moment she says it: the evidence card that quotes the amount
-    cards = page.locator(".ev")
-    idx = 0
-    for i in range(cards.count()):
-        if "quarter" in cards.nth(i).inner_text().lower():
-            idx = i
-            break
-    cards.nth(idx).click()
-    time.sleep(0.5)
-    st = page.evaluate("() => document.getElementById('clip').currentTime")
-    mark(seg, t0, "clip", start_s=st, dur=7.5)
-    time.sleep(7.5)
-    page.click("#momentClose")
-    time.sleep(0.6)
-    say(page, seg, t0, "Skip to the resting step.")
-    say(page, seg, t0, "Set a timer for the rest.")
+    hands_free_on(page, seg, t0)
+    say(page, seg, t0, "Alexa, how much water did she use?")
+    replay_card(page, seg, t0, "quarter", 7.5)
+    say(page, seg, t0, "Alexa, how much sugar does she add?")
+    say(page, seg, t0, "Alexa, skip to the resting step.")
+    say(page, seg, t0, "Alexa, set a timer for the rest.")
     time.sleep(1.5)
 
 
@@ -145,9 +155,10 @@ def seg2(page, seg, t0):
     page.wait_for_selector("#stepCard:not([hidden])", timeout=30000)
     time.sleep(1.2)
     alexa_line(page, seg, t0, extra_wait=0.4)
-    say(page, seg, t0, "I'm back. Where was I?")
-    say(page, seg, t0, "Skip ahead to shaping the pasta.")
-    say(page, seg, t0, "Show me how she makes the shape with her thumb.")
+    hands_free_on(page, seg, t0)
+    say(page, seg, t0, "Alexa, I'm back. Where was I?")
+    say(page, seg, t0, "Alexa, skip ahead to shaping the pasta.")
+    say(page, seg, t0, "Alexa, show me how she makes the shape with her thumb.")
     time.sleep(0.8)
     if not page.is_visible("#momentImg"):
         # the model answered without show_moment this time: open the matching evidence clip instead
@@ -164,20 +175,53 @@ def seg2(page, seg, t0):
     mark(seg, t0, "clip", start_s=st, dur=7.5)
     time.sleep(7.5)
     page.click("#momentClose")
-    time.sleep(0.6)
+    time.sleep(1.0)
+
+
+def seg3(page, seg, t0):
+    """A video the system has never seen: paste the link, wait for it to be watched for real, ask about it."""
+    page.goto("http://127.0.0.1:8770/?rec=1", wait_until="networkidle")
+    time.sleep(1.5)
+    page.fill("#urlInput", NEW_VIDEO)
+    time.sleep(0.8)
+    page.click("#urlForm button")
+    mark(seg, t0, "import_start")
+    last = ""
+    while not page.is_visible("#stepCard"):
+        text = page.inner_text("#importing") if page.is_visible("#importing") else ""
+        stage = text.split("…")[0]
+        if stage and stage != last:
+            mark(seg, t0, "stage", text=stage)
+            last = stage
+        if text.startswith("Couldn't"):
+            raise SystemExit("import failed: " + text)
+        time.sleep(0.5)
+    mark(seg, t0, "import_done")
+    time.sleep(0.3)
+    alexa_line(page, seg, t0)
+    hands_free_on(page, seg, t0)
+    say(page, seg, t0, "Alexa, how long does she cook each side?")
+    replay_card(page, seg, t0, "seven", 7.0)
     page.click("#traceBtn")
+    mark(seg, t0, "tail")
     time.sleep(1.5)
     page.evaluate("() => { const r = document.getElementById('traceRows'); r.scrollTop = 0; }")
-    time.sleep(4.0)
+    time.sleep(3.5)
     page.evaluate("() => { const r = document.getElementById('traceRows'); r.scrollTo({top: r.scrollHeight, behavior: 'smooth'}); }")
-    time.sleep(7.0)
+    time.sleep(6.0)
+
+
+def fresh(folder: Path) -> None:
+    if folder.exists():
+        shutil.move(str(folder), str(folder) + f".old-{int(time.time())}")
+    folder.mkdir(parents=True)
 
 
 def main():
+    global DATA
     OUT.mkdir(parents=True, exist_ok=True)
-    if DATA.exists():
-        shutil.move(str(DATA), str(DATA) + f".old-{int(time.time())}")
-    DATA.mkdir(parents=True)
+    fresh(DATA)
+    fresh(DATA_NEW)
     for line in USER_LINES:  # synthesize the cook's lines up front so pacing is not hostage to TTS latency
         tts("user", line)
     with sync_playwright() as pw:
@@ -191,8 +235,14 @@ def main():
         start_stack()
         try:
             record_segment(browser, "seg2", seg2)
+        finally:
+            stop_stack()
+        DATA = DATA_NEW  # a fresh install: nothing watched yet
+        start_stack()
+        try:
+            record_segment(browser, "seg3", seg3)
             import urllib.request  # keep the MCP traffic of the take, to check which tools the agent called
-            (OUT / "trace-seg2.json").write_bytes(urllib.request.urlopen("http://127.0.0.1:8765/trace", timeout=5).read())
+            (OUT / "trace-seg3.json").write_bytes(urllib.request.urlopen("http://127.0.0.1:8765/trace", timeout=5).read())
         finally:
             stop_stack()
         browser.close()

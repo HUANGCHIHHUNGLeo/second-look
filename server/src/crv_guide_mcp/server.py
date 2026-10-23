@@ -16,6 +16,7 @@ from collections import deque
 from pathlib import Path
 from typing import Any, Literal
 
+from mcp.server.apps import Apps, ResourceCsp
 from mcp.server.mcpserver import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp_types import CallToolResult, ImageContent, TextContent, ToolAnnotations
@@ -33,12 +34,29 @@ mentioning the video time (for example "at 2:14"). If ask_source finds nothing r
 When the person asks what something should look like, call show_moment and describe the returned frame.
 When a step has a duration (wait_s) offer a timer; set it with set_timer."""
 
+# MCP Apps (io.modelcontextprotocol/ui): the session tools point at one self-contained HTML view.
+# Alexa+ renders an add-on's UI this way (a ui:// resource in a sandboxed iframe, talking to the
+# host over postMessage); any other MCP Apps host can show it too, and text-only clients ignore it.
+UI_URI = "ui://second-look/cook.html"
+UI_META = {"ui": {"resourceUri": UI_URI}}
+apps = Apps()
+apps.add_html_resource(
+    UI_URI,
+    (Path(__file__).parent / "ui" / "cook.html").read_text(encoding="utf-8"),
+    name="second-look-view",
+    title="Second Look",
+    description="The cook-along screen: current step, its frame from the video, evidence cards and the moment to replay.",
+    csp=ResourceCsp(resource_domains=[config.PUBLIC_BASE_URL, "https://unpkg.com"]),
+    prefers_border=False,
+)
+
 mcp = MCPServer(
     name="crv-guide",
     title="crv-guide: follow any how-to video",
-    version="0.1.0",
+    version="0.2.0",
     instructions=INSTRUCTIONS,
-    website_url="https://github.com/HUANGCHIHHUNGLeo/crv-guide-mcp",
+    website_url="https://github.com/HUANGCHIHHUNGLeo/second-look",
+    extensions=[apps],
 )
 
 FIXTURES_DIR = Path(__file__).resolve().parents[2] / "fixtures"
@@ -287,7 +305,7 @@ async def list_guides() -> CallToolResult:
     return _result({"guides": guides}, text)
 
 
-@mcp.tool(title="Start cooking along", annotations=ToolAnnotations(readOnlyHint=False))
+@mcp.tool(title="Start cooking along", annotations=ToolAnnotations(readOnlyHint=False), meta=UI_META)
 async def start_session(guide_id: str) -> CallToolResult:
     """Start a new hands-free session for a guide at step 1. Returns the session snapshot and the video frame for the step."""
     g = store.get_guide(guide_id)
@@ -298,7 +316,7 @@ async def start_session(guide_id: str) -> CallToolResult:
     return _session_result(sess, g, f"Started session {sid}.")
 
 
-@mcp.tool(title="Where was I?", annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(title="Where was I?", annotations=ToolAnnotations(readOnlyHint=True), meta=UI_META)
 async def get_session(session_id: str | None = None) -> CallToolResult:
     """Current state of a session: step, what it should look like, timers with time left. Without session_id it resumes the most recent unfinished session (use this when someone comes back and asks where they were)."""
     sess, g, err = _load(session_id)
@@ -308,7 +326,7 @@ async def get_session(session_id: str | None = None) -> CallToolResult:
     return _session_result(sess, g, f"Resuming session {sess['id']} (last activity {ago // 60} min ago).", resume=True)
 
 
-@mcp.tool(title="Move to another step", annotations=ToolAnnotations(readOnlyHint=False))
+@mcp.tool(title="Move to another step", annotations=ToolAnnotations(readOnlyHint=False), meta=UI_META)
 async def move_step(
     session_id: str,
     action: Literal["next", "back", "repeat", "goto"],
@@ -345,7 +363,7 @@ async def move_step(
     return _session_result(sess, g, prefix)
 
 
-@mcp.tool(title="Ask the video", annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(title="Ask the video", annotations=ToolAnnotations(readOnlyHint=True), meta=UI_META)
 async def ask_source(question: str, session_id: str | None = None) -> CallToolResult:
     """Search what the video says and shows for an answer (quantities, times, technique, what something should look like). Returns the best matching transcript passages and steps with video times, plus the matching video frames as images. Answer only from these; if nothing relevant comes back, say the video does not cover it. Never moves the step."""
     sess, g, err = _load(session_id)
@@ -407,7 +425,7 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
     return _result(data, text, images)
 
 
-@mcp.tool(title="Show the moment in the video", annotations=ToolAnnotations(readOnlyHint=True))
+@mcp.tool(title="Show the moment in the video", annotations=ToolAnnotations(readOnlyHint=True), meta=UI_META)
 async def show_moment(
     session_id: str | None = None,
     step_number: int | None = None,
@@ -441,14 +459,15 @@ async def show_moment(
         st = g["steps"][idx]
         t = st["frame_t"]
         img = extract.exact_frame(watched, t)
-        clip = {"start_s": st["start_s"], "end_s": st["end_s"]}
+        # around the step's key frame, not the whole step: a kitchen replay should be short
+        clip = {"start_s": max(st["start_s"], t - 4), "end_s": min(st["end_s"], t + 8)}
         label = f"step {st['step_number']} ({st['title']}) at {extract.clock(t)}: {st['look_for']}"
     clip["video_url"] = _media(g["guide_id"], "video")
     data = {"at_s": round(t, 1), "video_time": extract.clock(t), "image_url": _media(g["guide_id"], "moment", f"{t:.2f}"), "clip": clip, "description": label}
     return _result(data, f"Attached: {label}. Replay clip {extract.clock(clip['start_s'])}-{extract.clock(clip['end_s'])}.", [img])
 
 
-@mcp.tool(title="Set a timer", annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+@mcp.tool(title="Set a timer", annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True), meta=UI_META)
 async def set_timer(seconds: int, label: str, session_id: str | None = None, request_id: str | None = None) -> CallToolResult:
     """Start a timer tied to the session (for example the 30-minute rest). The deadline is stored, so time left is still right after the app or server restarts. Reusing a request_id returns the same timer instead of a duplicate."""
     sess, g, err = _load(session_id)
@@ -463,7 +482,7 @@ async def set_timer(seconds: int, label: str, session_id: str | None = None, req
     return _result({"timer": me, "timers": timers, "speak": speak}, f"Suggested spoken reply: {speak}\nTimer '{me['label']}' set for {seconds // 60} min {seconds % 60} s; due {me['due_at_utc']}.")
 
 
-@mcp.tool(title="Cancel a timer", annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
+@mcp.tool(title="Cancel a timer", annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True), meta=UI_META)
 async def cancel_timer(timer_id: str, session_id: str | None = None) -> CallToolResult:
     """Cancel a running timer."""
     sess, g, err = _load(session_id)

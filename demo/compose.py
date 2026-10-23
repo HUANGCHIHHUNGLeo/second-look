@@ -22,15 +22,16 @@ WORK.mkdir(parents=True, exist_ok=True)
 CARDS = Path(__file__).parent / "cards"
 SOURCE = ROOT / "server/fixtures/pasta/source.mp4"
 FPS = 30
-CAPTION = "Alexa+ experience simulation  ·  voice input typed for this recording (the app uses the browser's Web Speech API)"
+CAPTION = "Alexa+ experience simulation  ·  requests typed for this recording, voices synthesized  ·  waits for the model are cut"
 
 NARR = {
     "intro": "Cooking from a video is hard with dough on your hands. The video keeps going, a quantity is said once, and you never know if yours looks right.",
     "title": "Second Look lets Alexa plus follow the video with you, because it actually watched it.",
-    "crv": "It watches the video with crv, turns frames and words into steps pinned to real moments, and serves them to Alexa plus through an MCP server.",
     "restart": "Now close the browser, and restart the server.",
+    "fresh": "And a video it has never seen.",
+    "newvideo": "Paste a link. crv watches it: a frame at every scene change, and a timestamped transcript. Then a model writes the steps, each pinned to a real moment. This one took {took}, sped up here.",
     "trace": "Under the hood, the screen and the Strands agent are both MCP clients of one server, over Streamable HTTP, protocol twenty twenty-five eleven twenty-five.",
-    "end": "Second Look. Any how-to video, hands-free. Open source.",
+    "end": "Second Look. Cook along with a video, hands-free. Open source.",
 }
 
 
@@ -45,6 +46,14 @@ def caption_png(name: str, text: str, where: str) -> Path:
     except OSError:
         font = ImageFont.load_default()
     w = d.textlength(text, font=font)
+    if where == "banner":
+        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 30) if Path("/System/Library/Fonts/Helvetica.ttc").exists() else font
+        w = d.textlength(text, font=font)
+        x, y = (1920 - w) / 2, 1080 - 150
+        d.rounded_rectangle([x - 20, y - 14, x + w + 20, y + 44], radius=12, fill=(8, 12, 18, 215))
+        d.text((x, y), text, font=font, fill=(255, 255, 255, 240))
+        im.save(out)
+        return out
     if where == "intro":
         x, y = 40, 1080 - 64
         d.rounded_rectangle([x - 12, y - 10, x + w + 12, y + 34], radius=8, fill=(0, 0, 0, 120))
@@ -86,8 +95,8 @@ def mix_audio(items: list[tuple[float, Path, float]], total: float, out: Path) -
     return out
 
 
-def narr(key: str) -> tuple[Path, float]:
-    a, _ = tts("narrator", NARR[key])
+def narr(key: str, **fmt) -> tuple[Path, float]:
+    a, _ = tts("narrator", NARR[key].format(**fmt))
     return fast_audio(str(a), 1.06)
 
 
@@ -149,7 +158,15 @@ def keep_intervals(events: list[dict], seg_len: float, lead: float) -> list[list
         elif e["kind"] == "clip":
             iv.append([at - 0.4, at + e["dur"] + 0.2])
         elif e["kind"] == "tail":
-            iv.append([at, min(seg_len, at + 9.5)])
+            iv.append([at - 0.3, min(seg_len, at + e.get("dur", 9.5))])
+        elif e["kind"] == "handsfree":
+            iv.append([at - 0.3, at + 1.0])
+        elif e["kind"] == "import_start":
+            iv.append([at - 1.2, at + e.get("dur", 4.0)])
+        elif e["kind"] == "stage":
+            iv.append([at - 0.2, at + 2.6])
+        elif e["kind"] == "import_done":
+            iv.append([at - 1.0, at + 0.4])
     iv = sorted([[max(0.0, a), min(seg_len, b)] for a, b in iv if b > a])
     merged: list[list[float]] = []
     for a, b in iv:
@@ -171,7 +188,8 @@ def remap(t: float, iv: list[list[float]]) -> float:
     return acc
 
 
-def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[float, Path, float]] = ()) -> Path:
+def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[float, Path, float]] = (),
+            banners: list[tuple[float, float, str]] = ()) -> Path:
     src = OUT / f"{name}.webm"
     seg_len = dur(src)
     iv = keep_intervals(events, seg_len, lead)
@@ -183,7 +201,14 @@ def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[
         labels.append(f"[v{i}]")
     cap = caption_png("rec", CAPTION, "rec")
     parts.append("".join(labels) + f"concat=n={len(iv)}:v=1:a=0,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0xe9e6e1[base];"
-                 "[base][2:v]overlay=0:0,format=yuv420p[v]")
+                 "[base][2:v]overlay=0:0" + ("[c0]" if banners else ",format=yuv420p[v]"))
+    banner_inputs: list[str] = []
+    for k, (a, b, text) in enumerate(banners):
+        png = caption_png(f"{name}-banner{k}", text, "banner")
+        banner_inputs += ["-loop", "1", "-i", str(png)]
+        a2, b2 = remap(a, iv), remap(b, iv)
+        last = k == len(banners) - 1
+        parts.append(f"[c{k}][{3 + k}:v]overlay=0:0:enable='between(t,{a2:.2f},{b2:.2f})'" + (",format=yuv420p[v]" if last else f"[c{k + 1}]"))
     # audio: every line at its new time
     items: list[tuple[float, Path, float]] = []
     for e in events:
@@ -197,7 +222,7 @@ def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[
     items += [(remap(t, iv), f, v) for t, f, v in extra_audio]
     audio = mix_audio(items, total, WORK / f"{name}.wav")
     out = WORK / f"{name}.mp4"
-    run(["ffmpeg", "-y", "-i", str(src), "-i", str(audio), "-loop", "1", "-i", str(cap), "-filter_complex", ";".join(parts), "-map", "[v]", "-map", "1:a",
+    run(["ffmpeg", "-y", "-i", str(src), "-i", str(audio), "-loop", "1", "-i", str(cap), *banner_inputs, "-filter_complex", ";".join(parts), "-map", "[v]", "-map", "1:a",
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-t", f"{total:.3f}", str(out)])
     print(name, "kept", round(total, 1), "s of", round(seg_len, 1))
     return out
@@ -205,21 +230,33 @@ def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[
 
 def main() -> None:
     tl = json.loads((OUT / "timeline.json").read_text())
-    s1 = [e for e in tl if e["seg"] == "seg1" and e["kind"] in ("user", "alexa", "clip")]
-    s2 = [e for e in tl if e["seg"] == "seg2" and e["kind"] in ("user", "alexa", "clip")]
-    end2 = next(e["at"] for e in tl if e["seg"] == "seg2" and e["kind"] == "end")
-    last_clip = [e for e in s2 if e["kind"] == "clip"][-1]
-    trace_at = last_clip["at"] + last_clip["dur"] + 0.9
-    s2.append({"kind": "tail", "at": trace_at})
+    kinds = ("user", "alexa", "clip", "handsfree", "import_start", "stage", "import_done", "tail")
+    s1 = [e for e in tl if e["seg"] == "seg1" and e["kind"] in kinds]
+    s2 = [e for e in tl if e["seg"] == "seg2" and e["kind"] in kinds]
+    s3 = [e for e in tl if e["seg"] == "seg3" and e["kind"] in kinds]
+    # the new video: say how long the real import took, and give the narration room over the sped-up part
+    t_start = next(e["at"] for e in s3 if e["kind"] == "import_start")
+    t_done = next(e["at"] for e in s3 if e["kind"] == "import_done")
+    took_s = int(round(t_done - t_start))
+    took = f"{took_s // 60} minutes {took_s % 60} seconds" if took_s >= 60 else f"{took_s} seconds"
+    na, nd = narr("newvideo", took=took)
+    for e in s3:
+        if e["kind"] == "import_start":
+            e["dur"] = max(4.0, nd - 4.0)
+    tail = next(e for e in s3 if e["kind"] == "tail")
     ta, td = narr("trace")
+    tail["dur"] = td + 1.2
+    banner = f"First time watching this video: {took_s // 60} min {took_s % 60:02d} s in real time, sped up here"
     pieces = [
         intro(),
         card("title", "title", 3.5, 0.4),
-        card("crv", "crv", 6.0, 0.5),
         segment("seg1", s1, lead=1.4),
         card("restart", "restart", 3.2, 0.4),
-        segment("seg2", s2, lead=0.6, extra_audio=[(trace_at + 0.3, ta, 1.0)]),
-        card("end", "end", 6.5, 2.0),
+        segment("seg2", s2, lead=0.6),
+        card("fresh", "fresh", 2.4, 0.3),
+        segment("seg3", s3, lead=0.6, extra_audio=[(t_start + 0.2, na, 1.0), (tail["at"] + 0.3, ta, 1.0)],
+                banners=[(t_start - 0.5, t_done + 0.3, banner)]),
+        card("end", "end", 5.5, 1.5),
     ]
     lst = WORK / "list.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in pieces))
@@ -227,9 +264,7 @@ def main() -> None:
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c:v", "libx264", "-preset", "medium", "-crf", "20",
          "-r", str(FPS), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
          "-movflags", "+faststart", str(final)])
-    print("FINAL", final, round(dur(final), 1), "s")
-    if td + 0.3 > end2 - trace_at:
-        print(f"note: trace narration ({td:.1f}s) is longer than the trace shot ({end2 - trace_at:.1f}s)")
+    print("FINAL", final, round(dur(final), 1), "s", "| import took", took)
 
 
 if __name__ == "__main__":
