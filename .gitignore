@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.env
+server/fixtures/*/source.*
+server/fixtures/*/moments/
+*.sqlite3
+.DS_Store
+sl-*.png

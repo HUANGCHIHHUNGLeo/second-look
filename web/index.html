@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Second Look · Alexa+ experience simulation</title>
+<link rel="stylesheet" href="/web/style.css">
+</head>
+<body>
+<div class="stage">
+  <div class="device" id="device">
+    <div class="screen">
+      <header class="topbar">
+        <div class="brand">
+          <span class="logo" aria-hidden="true"></span>
+          <span class="name">Second Look</span>
+          <span class="sim">Alexa+ experience simulation</span>
+        </div>
+        <div class="status">
+          <div class="timer-chips" id="timerChips"></div>
+          <span class="clock" id="clock">--:--</span>
+          <button class="ghost small" id="traceBtn" title="Show the MCP traffic">MCP trace</button>
+        </div>
+      </header>
+
+      <main class="main" id="main">
+        <section class="step" id="stepPanel">
+          <div class="empty" id="emptyState">
+            <h1>Follow a cooking video, hands-free.</h1>
+            <p>Second Look watches the video first, then walks you through it one step at a time. Ask what it should look like and it shows you the exact moment.</p>
+            <div class="load">
+              <button class="primary" id="loadSample">Load the sample video</button>
+              <form id="urlForm" class="url"><input id="urlInput" placeholder="…or paste a video URL" autocomplete="off"><button class="ghost" type="submit">Watch</button></form>
+            </div>
+            <p class="importing" id="importing" hidden></p>
+          </div>
+
+          <div class="card" id="stepCard" hidden>
+            <div class="kicker"><span id="stepNo">Step 1 of 1</span><span class="dot">·</span><span id="guideTitle"></span></div>
+            <h1 id="stepTitle"></h1>
+            <p class="say" id="stepSay"></p>
+            <p class="look"><span class="eye" aria-hidden="true">◉</span><span><b>Looks right when</b> <span id="stepLook"></span></span></p>
+            <p class="seen" id="stepSeen" hidden><b>Only in the picture:</b> <span></span></p>
+            <figure class="frame" id="frameBox">
+              <img id="frameImg" alt="Frame from the video">
+              <figcaption><span class="pill" id="frameTime">from the video at 0:00</span><button class="pill btn" id="replayBtn">▶ Replay this part</button></figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <aside class="side">
+          <div class="talk" id="talk">
+            <div class="you" id="youSaid"></div>
+            <div class="alexa" id="alexaSaid">Say “Alexa” or tap the mic.</div>
+            <div class="evidence" id="evidence"></div>
+          </div>
+          <div class="next" id="nextBox" hidden><span>Up next</span><b id="nextTitle"></b></div>
+        </aside>
+      </main>
+
+      <footer class="bottombar">
+        <div class="controls">
+          <button class="ghost" id="backBtn" disabled>Back</button>
+          <button class="ghost" id="repeatBtn" disabled>Repeat</button>
+          <button class="ghost" id="nextBtn" disabled>Next</button>
+        </div>
+        <button class="mic" id="micBtn" aria-label="Talk"><span></span></button>
+        <form class="type" id="typeForm"><input id="typeInput" placeholder="Type instead of talking" autocomplete="off"></form>
+        <div class="lightbar" id="lightbar"></div>
+      </footer>
+
+      <div class="moment" id="moment" hidden>
+        <div class="moment-inner">
+          <video id="clip" playsinline></video>
+          <img id="momentImg" alt="">
+          <div class="moment-cap"><span id="momentCap"></span><button class="ghost small" id="momentClose">Close</button></div>
+        </div>
+      </div>
+
+      <div class="alarm" id="alarm" hidden><b id="alarmText"></b><button class="primary" id="alarmOk">OK</button></div>
+    </div>
+  </div>
+
+  <aside class="trace" id="trace" hidden>
+    <div class="trace-head"><b>MCP trace</b><span>Streamable HTTP · this page and the Strands agent are both MCP clients</span><button class="ghost small" id="traceClose">Close</button></div>
+    <div class="trace-rows" id="traceRows"></div>
+  </aside>
+</div>
+<script src="/web/app.js"></script>
+</body>
+</html>

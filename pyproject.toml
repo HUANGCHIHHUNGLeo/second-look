@@ -1,0 +1,35 @@
+[project]
+name = "second-look"
+version = "0.1.0"
+description = "Second Look: Alexa+ follows a cooking video with you. An MCP server (crv-guide) that watches how-to videos, plus a simulated Alexa+ screen driven by a Strands agent."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  # MCP server (Streamable HTTP, spec 2025-11-25)
+  "mcp>=2.1,<2.2",
+  # crv watches the video: keyframes + timestamped transcript
+  "claude-real-video[mlx]==0.10.7; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "claude-real-video[fast]==0.10.7; sys_platform != 'darwin' or platform_machine != 'arm64'",
+  # PyAV 16+ broke faster-whisper's audio loading (open() got an unexpected keyword argument 'metadata_errors')
+  "av<16",
+  "google-genai>=1.68",
+  "pillow>=10",
+  "pydantic>=2",
+  # the simulated Alexa+ device
+  "strands-agents[gemini,openai]==1.62.0",
+  "starlette>=0.40",
+  "uvicorn>=0.30",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+crv-guide-mcp = "crv_guide_mcp.__main__:main"
+second-look = "second_look.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["second_look", "server/src/crv_guide_mcp"]
