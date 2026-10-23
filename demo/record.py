@@ -107,7 +107,7 @@ USER_LINES = [
     "Alexa, skip to the resting step.",
     "Alexa, set a timer for the rest.",
     "Alexa, I'm back. Where was I?",
-    "Alexa, skip ahead to shaping the pasta.",
+    "Alexa, next.",
     "Alexa, show me how she makes the shape with her thumb.",
     "Alexa, how long does she cook each side?",
 ]
@@ -121,24 +121,44 @@ def hands_free_on(page, seg, t0):
     time.sleep(1.2)
 
 
-def replay_card(page, seg, t0, word, dur):
-    """Tap the evidence card that quotes the answer and let that part of the video play."""
-    cards = page.locator(".ev")
-    idx = next((i for i in range(cards.count()) if word in cards.nth(i).inner_text().lower()), 0)
-    cards.nth(idx).click()
-    time.sleep(0.5)
-    st = page.evaluate("() => document.getElementById('clip').currentTime")
+def view(page):
+    """The add-on's own UI: the MCP server's ui:// resource, mounted by the host in an iframe."""
+    return page.frame_locator("#addon")
+
+
+def view_frame(page):
+    return next(f for f in page.frames if f != page.main_frame)
+
+
+def wait_view_step(page, timeout=60000):
+    view(page).locator("#stepCard:not([hidden])").wait_for(timeout=timeout)
+
+
+def clip_plays(page, seg, t0, dur):
+    """Wait until the view's clip is actually playing, log where it starts, let it play, close it."""
+    fr = view_frame(page)
+    fr.wait_for_function("() => { const v = document.getElementById('clip'); return v && !v.hidden && !v.paused && v.currentTime > 0; }", timeout=15000)
+    st = fr.evaluate("() => document.getElementById('clip').currentTime")
     mark(seg, t0, "clip", start_s=st, dur=dur)
     time.sleep(dur)
-    page.click("#momentClose")
+    if view(page).locator("#moment:not([hidden])").count():
+        view(page).locator("#momentClose").click()
     time.sleep(0.6)
+
+
+def replay_card(page, seg, t0, word, dur):
+    """Tap the evidence card that quotes the answer: the view asks the server for that moment and plays it."""
+    cards = view(page).locator(".ev")
+    idx = next((i for i in range(cards.count()) if word in cards.nth(i).inner_text().lower()), 0)
+    cards.nth(idx).click()
+    clip_plays(page, seg, t0, dur)
 
 
 def seg1(page, seg, t0):
     page.goto("http://127.0.0.1:8770/?rec=1", wait_until="networkidle")
     time.sleep(2.0)
     page.click("#loadSample")
-    page.wait_for_selector("#stepCard:not([hidden])", timeout=60000)
+    wait_view_step(page)
     time.sleep(0.3)
     alexa_line(page, seg, t0)
     hands_free_on(page, seg, t0)
@@ -152,30 +172,18 @@ def seg1(page, seg, t0):
 
 def seg2(page, seg, t0):
     page.goto("http://127.0.0.1:8770/?rec=1", wait_until="networkidle")
-    page.wait_for_selector("#stepCard:not([hidden])", timeout=30000)
+    wait_view_step(page, timeout=30000)
     time.sleep(1.2)
     alexa_line(page, seg, t0, extra_wait=0.4)
     hands_free_on(page, seg, t0)
     say(page, seg, t0, "Alexa, I'm back. Where was I?")
-    say(page, seg, t0, "Alexa, skip ahead to shaping the pasta.")
-    say(page, seg, t0, "Alexa, show me how she makes the shape with her thumb.")
-    time.sleep(0.8)
-    if not page.is_visible("#momentImg"):
-        # the model answered without show_moment this time: open the matching evidence clip instead
-        cards = page.locator(".ev")
-        idx = next((i for i in range(cards.count()) if "thumb" in cards.nth(i).inner_text().lower()), 0)
-        cards.nth(idx).click()
-        time.sleep(0.4)
-        page.click("#momentClose")
-        time.sleep(0.3)
-        mark(seg, t0, "note", text="fallback: no show_moment, used evidence card")
-    page.click("#momentImg")
-    time.sleep(0.5)
-    st = page.evaluate("() => document.getElementById('clip').currentTime")
-    mark(seg, t0, "clip", start_s=st, dur=7.5)
-    time.sleep(7.5)
-    page.click("#momentClose")
-    time.sleep(1.0)
+    say(page, seg, t0, "Alexa, next.")
+    time.sleep(1.2)  # the card now flags a number the narration never says ("four pieces")
+    say(page, seg, t0, "Alexa, show me how she makes the shape with her thumb.", extra_wait=0.2)
+    # the host shows the moment once Alexa has finished speaking: still frame, then the clip plays
+    page.evaluate("() => window.__flushMoments()")
+    clip_plays(page, seg, t0, 7.5)
+    time.sleep(0.4)
 
 
 def seg3(page, seg, t0):
@@ -187,7 +195,7 @@ def seg3(page, seg, t0):
     page.click("#urlForm button")
     mark(seg, t0, "import_start")
     last = ""
-    while not page.is_visible("#stepCard"):
+    while not view(page).locator("#stepCard:not([hidden])").count():
         text = page.inner_text("#importing") if page.is_visible("#importing") else ""
         stage = text.split("…")[0]
         if stage and stage != last:

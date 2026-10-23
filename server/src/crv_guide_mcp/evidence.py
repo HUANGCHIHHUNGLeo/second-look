@@ -85,7 +85,8 @@ QUANTITY = re.compile(
 ASKS_QUANTITY = re.compile(r"\bhow (much|many|long|big|thick|thin|hot)\b|temperature|amount|quantity|how much time", re.I)
 # words that say what kind of answer is wanted, not what it is about ("how long does the DOUGH rest")
 GENERIC = {_stem(w) for w in """add adds put pour need needs take get cook mix look see show tell say know want start time
-    video step right good long big thick thin hot temperature amount quantity size""".split()}
+    video step right good long big thick thin hot temperature amount quantity size goes go exactly total roughly
+    approximately usually supposed""".split()}
 
 
 def subject(question: str) -> list[str]:
@@ -159,7 +160,11 @@ def search(passages: list[Passage], question: str, k: int = 4) -> list[tuple[flo
                 boost *= 1 + 0.6 * min(3, len(QUANTITY.findall(p.text)))
             scored.append((s * boost, p))
     if wants_amount and (about := set(subject(question))):
-        # an amount for something the video never mentions is not an answer ("how much sugar?" in a recipe with none)
+        # an amount for something the video never mentions is not an answer ("how much sugar goes into the
+        # dough?" in a recipe with no sugar), even when other words of the question match
+        seen = set().union(*(p.toks for p in passages))
+        if about - seen:
+            return []
         scored = [(sc, p) for sc, p in scored if about & set(p.toks)]
     scored.sort(key=lambda x: -x[0])
     # drop near-duplicate transcript windows that overlap a better one

@@ -4,9 +4,10 @@ Everything below is what we actually ran into while building this project, with 
 
 ## Alexa+ (Agent Skills / MCP integration)
 - **Used for:** the target platform. We built a self-hosted MCP server (spec 2025-11-25, Streamable HTTP) meant to be an Alexa+ integration.
-- **What worked well:** choosing MCP as the integration standard. It let us build and test the whole skill with ordinary MCP tooling and two different clients.
+- **What worked well:** choosing MCP as the integration standard. It let us build and test the whole skill with ordinary MCP tooling and two different clients. The add-on guide's Visual Foundations (768 px base canvas, type, spacing, radius and card colour tokens) and Layout and Rendering pages (UI as an MCP Apps HTML bundle in a sandboxed iframe) were concrete enough to build the add-on view directly against them.
 - **What needs work:** the Add-on developer tools (Category SDK, MCP Toolkit, CLI, Web Simulator) are select-partners only, and some setup-guide pages don't say so (the hackathon FAQ clarified it). We could not see how Alexa+ renders image content from a tool result, or how it treats `structuredContent`, so we designed the screen from public Echo Show conventions.
 - **Onboarding:** reading the Alexa+ pages took time because we were looking for an access path that doesn't exist yet for us.
+- **What needs work (2):** we didn't find an example payload for the Alexa-specific host context fields (`deviceClass`, `isMobile`, `maxWidth`) that sit next to the standard MCP Apps ones, so our simulated host had to guess their exact shape; the Layout and Rendering page asks you to check buttons against a minimum touch target but doesn't state the size.
 - **Feature requests:** (critical) a public reference client or simulator for MCP-based Alexa+ integrations, even without device access; (important) documented guidance on images and structured content in tool results on Echo Show; (important) published expectations for session and state handling across conversations.
 - **Would we build with it again:** yes. We'd ship this to Echo Show users the day the tools open up.
 
@@ -14,7 +15,7 @@ Everything below is what we actually ran into while building this project, with 
 - **Used for:** the Streamable HTTP server (`MCPServer`, `streamable_http_app`, `custom_route`, `TransportSecuritySettings`), returning `CallToolResult` with text + images + `structured_content`; a Python test client.
 - **What worked well:** the initialize handshake defaults to 2025-11-25; image + structured results in one tool response worked first time; DNS-rebinding protection is one settings object.
 - **What needs work:** 2.x renames broke code we copied from older examples: `FastMCP` is now `MCPServer` (good error message), and the client helper `streamablehttp_client` is now `streamable_http_client` (plain ImportError, no deprecation alias).
-- **Onboarding:** about 20 minutes from install to a tool call over Streamable HTTP.
+- **Onboarding:** about 20 minutes from install to a tool call over Streamable HTTP. The built-in MCP Apps extension (`MCPServer(extensions=[Apps()])`, `add_html_resource`) made serving the `ui://` view a few lines.
 - **Would we build with it again:** yes.
 
 ## Strands Agents SDK (`strands-agents` 1.62.0) — AWS Builder

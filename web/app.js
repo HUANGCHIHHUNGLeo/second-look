@@ -97,10 +97,31 @@ async function mountView() {
   const doc = res.contents.find((c) => (c.mimeType || "").startsWith("text/html"));
   trace({ method: "resources/read", detail: `${uri} · ${doc.mimeType} · ${doc.text.length} bytes`, dir: "host → server" });
   const f = $("addon");
-  f.srcdoc = doc.text;          // opaque origin: allow-scripts only, no same-origin
+  f.srcdoc = withCsp(doc.text, (doc._meta && doc._meta.ui && doc._meta.ui.csp) || {});  // opaque origin: allow-scripts only
   f.hidden = false;
   $("launcher").hidden = true;
   view.frame = f;
+}
+
+// Enforce the CSP the resource declares (_meta.ui.csp), as MCP Apps hosts must: the view may load
+// scripts, styles, images and media only from its declared resource domains, and may not connect anywhere.
+function withCsp(html, csp) {
+  const res = (csp.resourceDomains || []).join(" ");
+  const conn = (csp.connectDomains || []).join(" ") || "'none'";
+  const policy = [
+    "default-src 'none'",
+    `script-src 'unsafe-inline' ${res}`,
+    `style-src 'unsafe-inline' ${res}`,
+    `img-src data: ${res}`,
+    `media-src ${res}`,
+    `font-src data: ${res}`,
+    `connect-src ${conn}`,
+    "frame-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+  return /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (h) => `${h}\n${meta}`) : meta + html;
 }
 
 function hostContext() {
@@ -135,6 +156,8 @@ window.addEventListener("message", async (e) => {
   if (!view.frame || e.source !== view.frame.contentWindow) return;
   const m = e.data;
   if (!m || m.jsonrpc !== "2.0" || !m.method) return;
+  m.params = m.params || {};
+  if (m.method === "notifications/message" && m.params.data && m.params.data.event === "playback") { onPlayback(m.params.data.state); return; }
   trace({ method: m.method, detail: m.method === "tools/call" ? `${m.params.name} ${JSON.stringify(m.params.arguments || {})}` : m.method === "ui/initialize" ? `protocol ${m.params.protocolVersion}` : "", dir: "view → host", ui: true });
   switch (m.method) {
     case "ui/initialize":
@@ -150,6 +173,7 @@ window.addEventListener("message", async (e) => {
       for (const q of view.queue.splice(0)) toView(q.method, q.params);
       return;
     case "tools/call":
+      if (!uiTools.has(m.params.name)) { replyError(m.id, `The view may only call its own tools, not ${m.params.name}`, -32602); return; }
       try {
         const r = await mcp.call(m.params.name, m.params.arguments || {});
         reply(m.id, r);
@@ -175,7 +199,7 @@ function onToolResult(name, args, result, { forward = true } = {}) {
   const d = (result && result.structuredContent) || {};
   if (d.session_id && d.step) snap = d;
   if (d.timers) renderTimers(d.timers);
-  if (name === "show_moment" && d.clip) quietFor(0.9 + (d.clip.end_s - d.clip.start_s) + 0.5);
+
   if (forward && uiTools.has(name) && view.frame) {
     toView("ui/notifications/tool-input", { arguments: args || {} });
     toView("ui/notifications/tool-result", result);
@@ -320,7 +344,16 @@ function hfStart() {
 function hfStop() { const r = hfRec; hfRec = null; if (r) { r.onend = null; try { r.abort(); } catch {} } }
 function hfPause() { hfPaused++; hfStop(); }
 function hfResume() { hfPaused = Math.max(0, hfPaused - 1); if (hfPaused === 0 && handsFree) setTimeout(hfStart, 300); }
-function quietFor(seconds) { hfPause(); setTimeout(hfResume, seconds * 1000); }  // a clip is playing in the view
+// The view reports when a clip's sound starts and stops; the microphone stays closed in between.
+let clipPlaying = false, clipGuard = null;
+function onPlayback(state) {
+  if (state === "playing" && !clipPlaying) {
+    clipPlaying = true; hfPause();
+    clipGuard = setTimeout(() => onPlayback("stopped"), 60000);  // never stay deaf if a "stopped" gets lost
+  } else if (state !== "playing" && clipPlaying) {
+    clipPlaying = false; clearTimeout(clipGuard); hfResume();
+  }
+}
 function hfHeard(text) {
   const m = text.match(WAKE);
   const cmd = m ? m[1].trim() : Date.now() < hfAwaitUntil ? text : "";

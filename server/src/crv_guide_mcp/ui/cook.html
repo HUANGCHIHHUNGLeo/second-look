@@ -144,8 +144,13 @@ const notify = (method, params = {}) => send({ jsonrpc: "2.0", method, params })
 function request(method, params = {}) {
   const id = ++rpcId;
   send({ jsonrpc: "2.0", id, method, params });
-  return new Promise((resolve, reject) => waiting.set(id, { resolve, reject }));
+  return new Promise((resolve, reject) => {
+    waiting.set(id, { resolve, reject });
+    setTimeout(() => { if (waiting.delete(id)) reject(new Error(`${method}: no answer from the host`)); }, 20000);
+  });
 }
+// The host keeps the microphone closed while a clip plays; tell it when the video's sound starts and stops.
+const playback = (state) => notify("notifications/message", { level: "info", logger: "second-look-view", data: { event: "playback", state } });
 window.addEventListener("message", (e) => {
   if (e.source !== window.parent) return;
   const m = e.data;
@@ -172,6 +177,11 @@ function applyContext(ctx) {
 // ---------------------------------------------------------------- rendering tool results
 function show(result) {
   const d = (result && result.structuredContent) || {};
+  if (!snap && !(d.session_id && d.step) && (Array.isArray(d.evidence) || d.image_url)) {
+    // a view opened on an answer or a moment: fetch the session so there is a step to show it on
+    callTool("get_session", {}).then(() => show(result));
+    return;
+  }
   if (d.session_id && d.step) renderStep(d);
   if (Array.isArray(d.evidence)) renderEvidence(d.evidence);
   if (d.image_url && d.clip) showMoment(d);
@@ -222,30 +232,39 @@ function renderEvidence(list) {
   }
 }
 
-let stopTimer = null;
+let stopTimer = null, playToken = 0;
 function showMoment(d) {
   $("moment").hidden = false;
   const img = $("momentImg"), v = $("clip");
+  const token = ++playToken;
   img.hidden = false; img.src = d.image_url;
-  v.hidden = true; v.pause();
+  v.hidden = true; v.pause(); v.controls = false;
   $("momentCap").textContent = `From the video at ${d.video_time}`;
   clearTimeout(stopTimer);
   // still frame first, then the clip plays by itself
-  stopTimer = setTimeout(() => playClip(d.clip.video_url, d.clip.start_s, d.clip.end_s), 900);
+  stopTimer = setTimeout(() => playClip(d.clip.video_url, d.clip.start_s, d.clip.end_s, token), 900);
 }
-function playClip(url, start, end) {
+function playClip(url, start, end, token) {
   const v = $("clip"), img = $("momentImg");
   if (!v.src.endsWith(url)) v.src = url;
-  const go = () => { img.hidden = true; v.hidden = false; v.currentTime = start; v.play().catch(() => {}); };
-  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
-  v.ontimeupdate = () => {
-    if (v.currentTime < end || v.paused) return;
+  const finish = () => {
+    if (token !== playToken) return;
     v.pause();
     clearTimeout(stopTimer);
     stopTimer = setTimeout(closeMoment, 1500);  // back to the step by itself: nothing to tap with floury hands
   };
+  const go = () => {
+    if (token !== playToken || $("moment").hidden) return;  // closed or replaced while loading
+    img.hidden = true; v.hidden = false; v.currentTime = start;
+    v.play().then(() => playback("playing")).catch(() => { v.controls = true; playback("stopped"); });  // autoplay blocked: tap to play
+  };
+  if (v.readyState >= 1) go(); else v.addEventListener("loadedmetadata", go, { once: true });
+  v.ontimeupdate = () => { if (v.currentTime >= end && !v.paused) finish(); };
+  v.onended = finish;
+  v.onpause = () => playback("stopped");
+  v.onplay = () => playback("playing");
 }
-function closeMoment() { clearTimeout(stopTimer); $("clip").pause(); $("moment").hidden = true; }
+function closeMoment() { playToken++; clearTimeout(stopTimer); $("clip").pause(); $("moment").hidden = true; playback("stopped"); }
 
 // ---------------------------------------------------------------- the view's own buttons
 async function callTool(name, args) {

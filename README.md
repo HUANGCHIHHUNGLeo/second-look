@@ -5,12 +5,12 @@
 Cooking from a video is awkward when your hands are covered in flour: the video keeps going, you can't scrub back, a quantity is said once and gone, and you never know if yours looks right. Recipe tools can turn the *captions* into a text recipe. Second Look gives Alexa+ the video itself:
 
 - **"Alexa, how much water did she use?"** It answers from what was said *and when*: "about three quarters of a cup of cold water to start; she says it at 1:24", with the evidence on screen and the moment ready to replay.
-- **"Alexa, how much sugar?"** "The video never mentions sugar." Questions about things the video doesn't cover get that answer, not the nearest other number.
+- **"Alexa, how much sugar?"** "The video never mentions sugar." An amount question about something the video never mentions gets no evidence back, so Alexa says so instead of reading out the nearest other number.
 - **"Show me how she makes the shape with her thumb."** It finds the moment she describes the move, shows the frame a beat later and replays the clip, and describes details the narrator never says (hand position, thickness, texture).
 - **"Next." "Go back." "Repeat that."** One step at a time, read aloud, never skipping ahead on its own.
 - **"Set a timer for the rest."** The 30-minute rest from the video becomes a real timer.
 - **"I'm back, where was I?"** Close the app, restart everything, come back later: your step and your timers are still there.
-- **Hands-free mode.** Like an Echo Show, the screen keeps listening and acts only on sentences that start with "Alexa"; it stops listening while Alexa talks or a clip plays, so it never hears itself or the video.
+- **Hands-free mode.** Like an Echo Show, the screen keeps listening and acts only on sentences that start with "Alexa". It closes the microphone while Alexa talks, while the agent works and while a clip plays (the view reports when playback starts and stops), so it doesn't take its own voice or the cook in the video for a request.
 
 Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · Mini challenges: **AWS Builder** (Strands Agents SDK), **Open Source**.
 
@@ -23,26 +23,35 @@ Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · 
 ## How it works
 
 ```
-                 ┌──────────────────────────── Second Look (simulated Alexa+ Echo Show) ─────────────┐
- you ── voice ──▶│ browser: Web Speech API ──▶ /api/turn ──▶ Strands Agent (AWS Strands Agents SDK)  │
-                 │   the screen itself is also an MCP client          │ MCPClient (Streamable HTTP) │
-                 └───────────────────┬────────────────────────────────┼─────────────────────────────┘
-                                     │ MCP: initialize / tools/list / tools/call (protocol 2025-11-25)
-                                     ▼                                ▼
-                 ┌──────────────────────── crv-guide MCP server (this repo, server/) ──────────────────┐
-                 │ import_video ─▶ crv watches the video (scene-change keyframes + timestamped transcript)│
-                 │              ─▶ a multimodal model writes the guide from frames AND words,           │
-                 │                 every step pinned to real frame numbers, times and transcript lines   │
-                 │ start_session · get_session · move_step · ask_source · show_moment · set_timer …      │
-                 │ SQLite: guides, sessions, step progress, timer deadlines (survives restarts)          │
-                 └────────────────────────────────────────────────────────────────────────────────────────┘
+ you ── "Alexa, ..." ──┐
+                       ▼
+ ┌──────────────── simulated Alexa+ host (web/, an Echo Show 15 class screen) ────────────────┐
+ │ voice (Web Speech API, hands-free wake word) ─▶ /api/turn ─▶ Strands agent ─┐              │
+ │ add-on view: ui://second-look/cook.html in a sandboxed iframe               │ MCPClient    │
+ │   ▲ MCP Apps over postMessage: ui/initialize, ui/notifications/tool-result, │ (Streamable  │
+ │   │ tools/call proxied by the host                                         │  HTTP)        │
+ │   └──── host: MCP client + MCP Apps host ───────────────────────────────────┤              │
+ └──────────────────────────────┬──────────────────────────────────────────────┼──────────────┘
+                                │ MCP 2025-11-25: initialize · tools/list · resources/read · tools/call
+                                ▼                                              ▼
+ ┌──────────────────────────── crv-guide MCP server (server/) ─────────────────────────────────┐
+ │ import_video ─▶ crv watches the video (scene-change keyframes + timestamped transcript)      │
+ │              ─▶ a multimodal model writes the guide; checks.py checks its numbers         │
+ │ start_session · get_session · move_step · ask_source · show_moment · set_timer …           │
+ │   (session tools carry _meta.ui.resourceUri → the ui:// view, text/html;profile=mcp-app)   │
+ │ SQLite: guides, sessions, step progress, timer deadlines (survives restarts)               │
+ └────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Plain navigation ("next", "go back", "repeat", "I'm back, where was I?") is routed straight to `move_step` / `get_session`, the way a voice platform maps simple intents, so it answers instantly and can't be misread by a model. Everything open-ended ("how much water?", "skip to the shaping", "show me the thumb move") goes to the Strands agent, which always gets the screen's current session and step outline with the request. Session tools also return a short voice-ready line (`speak`, like a skill's output speech), so Alexa says one or two sentences while the screen shows the full card.
+**The add-on UI is built the way Alexa+ renders add-ons.** Amazon's Alexa+ add-on guide describes an add-on's screen as a self-contained HTML bundle that Alexa shows in a sandboxed iframe and talks to over the MCP Apps postMessage bridge ([Layout and Rendering](https://developer.amazon.com/en-US/docs/alexaplus/add-ons/mcp-addon-layout-and-rendering.html)). So the server registers one `ui://second-look/cook.html` resource (MIME `text/html;profile=mcp-app`, with its CSP in `_meta.ui`) through the MCP Python SDK's Apps extension, and the session tools point at it with `_meta.ui.resourceUri`. The view is authored on Amazon's 768 px base canvas (Block viewport, scaled 1.667x on an Echo Show 8/15) with the guide's type, spacing, radius and dark card colour tokens ([Visual Foundations](https://developer.amazon.com/en-US/docs/alexaplus/add-ons/mcp-addon-visual-foundations.html)). Text-only MCP clients simply ignore it.
 
-Two different MCP clients talk to the same server and share its state: the **Strands agent** (conversation) and the **screen** (renders cards, handles the Back / Repeat / Next buttons). The **MCP trace** button on the screen shows every JSON-RPC message live: `initialize` requesting protocol `2025-11-25`, the negotiated version, `tools/call` with its arguments.
+**The simulated device is an MCP Apps host.** It reads the resource, mounts it in a `sandbox="allow-scripts"` iframe, answers `ui/initialize` with a host context (theme, container size, device class), forwards every tool result from the agent's turn as `ui/notifications/tool-result`, and proxies the view's own `tools/call` (its Back / Next buttons, evidence cards) to the server. When Alexa answers with a moment, the host shows it after she has finished speaking; the view shows the frame, plays the clip and returns to the step by itself.
 
-Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so, as the hackathon FAQ describes, the device is simulated by a web page that acts as a real MCP client. The server itself is a standard MCP server any MCP client can use.
+Plain navigation ("next", "go back", "repeat", "I'm back, where was I?") is routed straight to `move_step` / `get_session`, the way a voice platform maps simple intents, so it answers instantly and can't be misread by a model. Everything open-ended ("how much water?", "skip to the shaping", "show me the thumb move") goes to the Strands agent, which always gets the screen's current session and step outline with the request. Session tools also return a short voice-ready line (`speak`, like a skill's output speech), so Alexa says one or two sentences while the view shows the full card.
+
+Two different MCP clients talk to the same server and share its state: the **Strands agent** (conversation) and the **host** (screen and add-on view). The **MCP trace** button shows both kinds of traffic live, in time order: MCP over Streamable HTTP (`initialize` with protocol `2025-11-25`, `resources/read` of the view, `tools/call` with arguments) and MCP Apps over postMessage (`ui/initialize`, `ui/notifications/tool-result`, the view's `tools/call`).
+
+Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so, as the hackathon FAQ allows, the device is simulated. The server is a standard MCP server any MCP client can use, and its view follows the MCP Apps spec (tested in our simulated host only).
 
 ### MCP tools (server/src/crv_guide_mcp/server.py)
 
@@ -58,7 +67,7 @@ Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so
 | `show_moment(query? \| at_seconds? \| step_number?)` | The exact frame (grabbed from the source video at that second) + a replayable clip range. `query` finds the moment from a description ("pressing the thumb into the dough"). |
 | `set_timer(seconds, label, request_id?)` / `cancel_timer` | Timers stored as absolute deadlines; idempotent with `request_id`. |
 
-Every step in a guide keeps its evidence: the frame number it was written from, its time range, the transcript lines behind each quantity, and a `visual_note` for something visible in the frames that the narration never says. The guide is checked against the real video before it is stored: frame numbers must exist and fall inside the step, times are clamped, line numbers must exist, and every number in an instruction (amounts, durations, temperatures) must appear in the narration the step cites or the lines spoken during it (`checks.py`). Numbers that aren't said are flagged on the card ("Not said in the video"), and a timer is only offered for a duration that is said. On the sample, 19 of 20 numbers are in the narration; the one that isn't is "four pieces", which she shows as "cut it in half and then half again".
+Every step in a guide keeps its evidence: the frame number it was written from, its time range, the transcript lines behind each quantity, and a `visual_note` for something visible in the frames that the narration never says. The guide is checked against the real video before it is stored: frame numbers must exist and fall inside the step, times are clamped, line numbers must exist, and every number in an instruction (amounts, durations, temperatures) must appear in the narration the step cites or the lines spoken during it, with the same unit and, for an amount of something, next to the same ingredient word: "two cups of sugar" does not pass on "two teaspoons of salt" or "two cups of flour" (`checks.py`). Numbers that aren't said are flagged on the card ("Not said in the video"), and a timer is only offered for a duration that is said. It is a lexical check of numbers, units and nearby words, not a proof that an instruction is right. On the sample, one number in the steps isn't in the narration: "four pieces", which she describes as "cut it in half and then half again".
 
 ---
 
@@ -104,7 +113,7 @@ The conversation runs on the **Strands Agents SDK** (AWS's open-source agent fra
 
 ## Honest limits
 
-- Not tested on a real Alexa+ device or console: those tools are select-partners only. The simulated screen speaks MCP exactly as described above.
+- Not tested on a real Alexa+ device or console: those tools are select-partners only. The simulated host speaks MCP and MCP Apps as described above; the add-on view has only been tested in that host. If a browser blocks autoplay, the clip shows its play button instead.
 - Timers ring while the screen is open; after a restart they show "done" or the correct time left (deadlines are stored), but there are no background notifications.
 - Voice uses the browser's Web Speech API (Chrome). Typing works everywhere. Hands-free mode was tested in Chromium with a scripted speech recognizer (`web/tests/handsfree_check.py`), not yet in a noisy kitchen; real recognition will sometimes mishear.
 - Answers are only as good as what the video shows and says; when the search finds nothing the assistant says the video doesn't cover it. Answer wording comes from a model; the numbers it may use come from the quoted transcript line.

@@ -29,8 +29,8 @@ NARR = {
     "title": "Second Look lets Alexa plus follow the video with you, because it actually watched it.",
     "restart": "Now close the browser, and restart the server.",
     "fresh": "And a video it has never seen.",
-    "newvideo": "Paste a link. crv watches it: a frame at every scene change, and a timestamped transcript. Then a model writes the steps, each pinned to a real moment. This one took {took}, sped up here.",
-    "trace": "Under the hood, the screen and the Strands agent are both MCP clients of one server, over Streamable HTTP, protocol twenty twenty-five eleven twenty-five.",
+    "newvideo": "Paste a link. crv watches it, frames and a timestamped transcript, and a model writes the steps. This one took {took}, sped up here.",
+    "trace": "Under the hood: the screen is an MCP Apps host, and the Strands agent and the screen share one MCP server.",
     "end": "Second Look. Cook along with a video, hands-free. Open source.",
 }
 
@@ -115,9 +115,18 @@ def card(name: str, narr_key: str | None, min_len: float = 4.0, pad: float = 0.8
     return out
 
 
-def source_clip(start: float, length: float, out: Path) -> Path:
-    run(["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", str(SOURCE), "-t", f"{length:.2f}", "-vn", "-ac", "2", "-ar", "48000", str(out)])
+def source_clip(start: float, length: float, out: Path, source: Path | None = None) -> Path:
+    run(["ffmpeg", "-y", "-ss", f"{start:.2f}", "-i", str(source or SOURCE), "-t", f"{length:.2f}", "-vn", "-ac", "2", "-ar", "48000", str(out)])
     return out
+
+
+def new_video_source() -> Path:
+    """The video imported live in seg3 (its clip audio must come from it, not from the sample)."""
+    data_new = Path(os.environ.get("DEMO_DATA_NEW", os.environ.get("DEMO_DATA", "/tmp/sl-demo-data") + "-new"))
+    found = sorted(data_new.glob("videos/*/source.*"))
+    if not found:
+        raise SystemExit(f"no imported video under {data_new}/videos")
+    return found[0]
 
 
 def intro() -> Path:
@@ -135,7 +144,7 @@ def intro() -> Path:
     return out
 
 
-SPEED = 1.15  # dialogue is played 15% faster; pauses for the model are cut anyway
+SPEED = 1.2  # dialogue is played 20% faster; pauses for the model are cut anyway
 
 
 def fast_audio(path: str, speed: float | None = None) -> tuple[Path, float]:
@@ -189,7 +198,7 @@ def remap(t: float, iv: list[list[float]]) -> float:
 
 
 def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[float, Path, float]] = (),
-            banners: list[tuple[float, float, str]] = ()) -> Path:
+            banners: list[tuple[float, float, str]] = (), source: Path | None = None) -> Path:
     src = OUT / f"{name}.webm"
     seg_len = dur(src)
     iv = keep_intervals(events, seg_len, lead)
@@ -217,7 +226,7 @@ def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[
             fa, _ = fast_audio(e["audio"])
             items.append((remap(at, iv), fa, 1.0))
         elif e["kind"] == "clip":
-            clip = source_clip(e["start_s"], e["dur"], WORK / f"{name}-clip-{int(e['start_s'])}.wav")
+            clip = source_clip(e["start_s"], e["dur"], WORK / f"{name}-clip-{int(e['start_s'])}.wav", source)
             items.append((remap(at, iv), clip, 0.9))
     items += [(remap(t, iv), f, v) for t, f, v in extra_audio]
     audio = mix_audio(items, total, WORK / f"{name}.wav")
@@ -232,8 +241,9 @@ def main() -> None:
     tl = json.loads((OUT / "timeline.json").read_text())
     kinds = ("user", "alexa", "clip", "handsfree", "import_start", "stage", "import_done", "tail")
     s1 = [e for e in tl if e["seg"] == "seg1" and e["kind"] in kinds]
-    s2 = [e for e in tl if e["seg"] == "seg2" and e["kind"] in kinds]
-    s3 = [e for e in tl if e["seg"] == "seg3" and e["kind"] in kinds]
+    # hands-free is switched on once in the video; after the reload it is switched on again off camera
+    s2 = [e for e in tl if e["seg"] == "seg2" and e["kind"] in kinds and e["kind"] != "handsfree"]
+    s3 = [e for e in tl if e["seg"] == "seg3" and e["kind"] in kinds and e["kind"] != "handsfree"]
     # the new video: say how long the real import took, and give the narration room over the sped-up part
     t_start = next(e["at"] for e in s3 if e["kind"] == "import_start")
     t_done = next(e["at"] for e in s3 if e["kind"] == "import_done")
@@ -255,8 +265,8 @@ def main() -> None:
         segment("seg2", s2, lead=0.6),
         card("fresh", "fresh", 2.4, 0.3),
         segment("seg3", s3, lead=0.6, extra_audio=[(t_start + 0.2, na, 1.0), (tail["at"] + 0.3, ta, 1.0)],
-                banners=[(t_start - 0.5, t_done + 0.3, banner)]),
-        card("end", "end", 5.5, 1.5),
+                banners=[(t_start - 0.5, t_done + 0.3, banner)], source=new_video_source()),
+        card("end", "end", 4.6, 1.2),
     ]
     lst = WORK / "list.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in pieces))

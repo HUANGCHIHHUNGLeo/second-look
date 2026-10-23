@@ -87,8 +87,9 @@ def test_amount_questions_need_their_subject_in_the_video():
 def test_numbers_in_steps_are_checked_against_the_narration():
     from crv_guide_mcp import checks, extract, guide
     w = extract.load(FIX)
-    assert checks.mentions("three-quarters of a cup")[0][1] == {("n", 0.75)}
-    assert ("s", 1800.0) in checks.mentions("about half an hour")[0][1]       # same as "30 minutes"
+    a = checks.mentions("three-quarters of a cup of cold water")[0]
+    assert a.numbers == {0.75} and a.unit == "cup" and "water" in a.what
+    assert 1800.0 in checks.mentions("about half an hour")[0].seconds        # same as "30 minutes"
     bad = guide.GuideOut(
         title="t", summary="s", equipment=[],
         ingredients=[guide.IngredientOut(item="sugar", amount="99 cups", evidence=[0])],
@@ -98,7 +99,7 @@ def test_numbers_in_steps_are_checked_against_the_narration():
     out = guide.validate(bad, w)
     st = out["steps"][0]
     assert "99 cups" in st["unverified"] and "12 hours" in st["unverified"]
-    assert st["wait_s"] is None                                   # no timer from a duration nobody said
+    assert st["wait_s"] is None and st["timer_dropped_s"] == 43200    # no timer from a duration nobody said
     assert out["ingredients"][0]["unverified"] is True
     real = checks.check_guide(json.loads((FIX / "guide.json").read_text()), w)
     assert real["steps"][1]["unverified"] == [] and real["steps"][3]["wait_s"] == 1800   # 3/4 cup, half an hour: said
@@ -130,3 +131,15 @@ def test_session_tools_carry_the_mcp_apps_view():
     assert contents[0].mime_type == "text/html;profile=mcp-app"
     html = contents[0].content
     assert "ui/initialize" in html and "ui/notifications/tool-result" in html and "tools/call" in html
+
+
+
+def test_amounts_must_match_unit_and_ingredient():
+    from types import SimpleNamespace as NS
+    from crv_guide_mcp import checks
+    said = NS(segments=[NS(index=0, start=0.0, end=4.0, text="Add two teaspoons of salt."),
+                        NS(index=1, start=4.0, end=8.0, text="Then two cups of flour, and fourteen minutes in the oven.")])
+    step = lambda say: {"say": say, "start_s": 0.0, "end_s": 8.0, "evidence": [0, 1], "wait_s": None}  # noqa: E731
+    g = checks.check_guide({"steps": [step("Add two cups of sugar."), step("Add two teaspoons of salt."),
+                                      step("Add two cups of flour."), step("Bake for fourteen minutes.")]}, said)
+    assert [s["unverified"] for s in g["steps"]] == [["two cups"], [], [], []]   # sugar is not flour, cups are not teaspoons
