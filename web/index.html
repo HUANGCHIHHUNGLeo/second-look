@@ -43,6 +43,7 @@
               <p class="say" id="stepSay"></p>
               <p class="look"><span class="tag ok">Looks right when</span><span id="stepLook"></span></p>
               <p class="seen" id="stepSeen" hidden><span class="tag warm">Only in the picture</span><span></span></p>
+              <p class="seen" id="stepCheck" hidden><span class="tag check">Not said in the video</span><span></span></p>
             </div>
             <figure class="frame" id="frameBox">
               <img id="frameImg" alt="Frame from the video">
@@ -66,6 +67,7 @@
           <button class="ghost" id="backBtn" disabled>Back</button>
           <button class="ghost" id="repeatBtn" disabled>Repeat</button>
           <button class="ghost" id="nextBtn" disabled>Next</button>
+          <button class="ghost hf" id="hfBtn" title="Keep listening for “Alexa, …” so you never touch the screen">Hands-free</button>
         </div>
         <button class="mic" id="micBtn" aria-label="Talk"><span></span></button>
         <form class="type" id="typeForm"><input id="typeInput" placeholder="Type instead of talking" autocomplete="off"></form>

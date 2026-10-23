@@ -77,6 +77,9 @@ function render(s) {
   const seen = $("stepSeen");
   seen.hidden = !st.visual_note;
   seen.querySelector("span:last-child").textContent = st.visual_note || "";
+  const chk = $("stepCheck");
+  chk.hidden = !(st.unverified && st.unverified.length);
+  chk.querySelector("span:last-child").textContent = (st.unverified || []).join(", ") + " (check the picture)";
   if ($("frameImg").src !== st.frame_url) $("frameImg").src = st.frame_url;
   $("frameTime").textContent = `from the video at ${st.frame_time}`;
   $("replayBtn").onclick = () => playClip(st.clip.video_url, st.clip.start_s, st.clip.end_s, `${st.title} · video ${st.video_time}`);
@@ -167,6 +170,11 @@ function playClip(url, start, end, caption) {
   $("moment").hidden = false;
   $("momentImg").hidden = true;
   const v = $("clip");
+  hfPause();
+  let resumed = false;
+  const back = () => { if (!resumed) { resumed = true; hfResume(); } };
+  v.addEventListener("pause", back, { once: true });
+  v.addEventListener("ended", back, { once: true });
   v.hidden = false;
   if (!v.src.endsWith(url)) v.src = url;
   $("momentCap").textContent = caption || "";
@@ -193,12 +201,16 @@ function speak(text) {
   if (REC || !("speechSynthesis" in window) || !text) return Promise.resolve();
   stopListening();
   speechSynthesis.cancel();
+  hfPause();
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text);
     if (voice) u.voice = voice;
     u.rate = 1.03;
+    let done = false;
+    const finish = () => { if (done) return; done = true; setLight(""); hfResume(); resolve(); };
     u.onstart = () => setLight("speak");
-    u.onend = u.onerror = () => { setLight(""); resolve(); };
+    u.onend = u.onerror = finish;
+    setTimeout(finish, 1500 + text.length * 120);  // some voices never fire onend
     speechSynthesis.speak(u);
   });
 }
@@ -222,16 +234,84 @@ function startListening() {
   $("micBtn").classList.add("on"); setLight("listen");
 }
 function stopListening() { if (rec && listening) { try { rec.stop(); } catch {} } }
-$("micBtn").onclick = () => (listening ? stopListening() : startListening());
+$("micBtn").onclick = () => (handsFree ? setHandsFree(false) : listening ? stopListening() : startListening());
 document.addEventListener("keydown", (e) => {
   if (e.code === "Space" && document.activeElement.tagName !== "INPUT") { e.preventDefault(); listening ? stopListening() : startListening(); }
 });
+
+// Hands-free mode: like a real Echo Show, keep listening and act only on sentences that start
+// with "Alexa". Listening pauses while Alexa is talking, while the agent is working and while a
+// clip plays, so the page never hears itself or the video, and re-arms afterwards.
+let handsFree = false, hfRec = null, hfPaused = 0, hfAwaitUntil = 0;
+const WAKE = /^\s*(?:hey\s+|ok(?:ay)?\s+)?alexa\b[\s,.!?]*(.*)$/i;
+function hfStart() {
+  if (!handsFree || hfPaused > 0 || hfRec || !SR) return;
+  const r = new SR();
+  r.lang = "en-US"; r.continuous = true; r.interimResults = true;
+  r.onresult = (ev) => {
+    for (let i = ev.resultIndex; i < ev.results.length; i++) {
+      const res = ev.results[i], text = res[0].transcript.trim();
+      if (!res.isFinal) { if (WAKE.test(text) || Date.now() < hfAwaitUntil) $("youSaid").textContent = text; continue; }
+      hfHeard(text);
+    }
+  };
+  r.onend = () => { if (hfRec === r) hfRec = null; if (handsFree && hfPaused === 0) setTimeout(hfStart, 250); };
+  r.onerror = (e) => {
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+      setHandsFree(false);
+      $("alexaSaid").textContent = "The microphone is blocked, so hands-free mode is off.";
+    }
+  };
+  try { r.start(); hfRec = r; setLight("idle"); } catch { hfRec = null; }
+}
+function hfStop() { const r = hfRec; hfRec = null; if (r) { r.onend = null; try { r.abort(); } catch {} } }
+function hfPause() { hfPaused++; hfStop(); }
+function hfResume() { hfPaused = Math.max(0, hfPaused - 1); if (hfPaused === 0 && handsFree) setTimeout(hfStart, 300); }
+function hfHeard(text) {
+  const m = text.match(WAKE);
+  const cmd = m ? m[1].trim() : Date.now() < hfAwaitUntil ? text : "";
+  if (m && !cmd) { hfAwaitUntil = Date.now() + 8000; $("youSaid").textContent = "Alexa…"; setLight("listen"); return; }
+  hfAwaitUntil = 0;
+  if (!cmd) return;  // not addressed to Alexa: the cook talking to someone else, the TV, the video
+  if (!localCommand(cmd)) ask(cmd);
+}
+// Things a device does by itself, without asking the agent.
+function localCommand(cmd) {
+  const c = cmd.toLowerCase().replace(/[.!?,]/g, "").trim();
+  if (/^(stop|cancel|pause|close( (that|it|the video))?|never ?mind)$/.test(c)) {
+    $("youSaid").textContent = cmd;
+    speechSynthesis.cancel(); $("clip").pause(); $("moment").hidden = true;
+    return true;
+  }
+  if (/^(replay( (that|this|it|the clip))?|play (that|it) again|show me again)$/.test(c)) {
+    $("youSaid").textContent = cmd;
+    const v = $("clip");
+    if (v.dataset.src) playClip(v.dataset.src, +v.dataset.start, +v.dataset.end, $("momentCap").textContent);
+    else if (snap) { const st = snap.step; playClip(st.clip.video_url, st.clip.start_s, st.clip.end_s, `${st.title} · video ${st.video_time}`); }
+    return true;
+  }
+  return false;
+}
+function setHandsFree(on) {
+  handsFree = on && !!SR;
+  $("hfBtn").classList.toggle("on", handsFree);
+  $("hfBtn").textContent = handsFree ? "Hands-free on" : "Hands-free";
+  $("micBtn").classList.toggle("hf", handsFree);
+  if (handsFree) { $("youSaid").textContent = "Say “Alexa, next”"; hfStart(); }
+  else { hfStop(); setLight(""); }
+  if (on && !SR) $("alexaSaid").textContent = "This browser has no speech recognition. Use Chrome for hands-free mode.";
+}
+$("hfBtn").onclick = () => setHandsFree(!handsFree);
 
 // ---------------------------------------------------------------- talking to the agent
 
 async function ask(text) {
   text = text.replace(/^\s*(hey\s+)?alexa[,.!]?\s*/i, "").trim();
   if (!text) return;
+  hfPause();
+  try { await askAgent(text); } finally { hfResume(); }
+}
+async function askAgent(text) {
   $("youSaid").textContent = text;
   $("alexaSaid").textContent = "…";
   $("evidence").innerHTML = "";

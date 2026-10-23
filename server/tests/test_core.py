@@ -71,6 +71,38 @@ def test_answer_is_pinned_to_the_line_that_says_it():
     assert "thumb" in evidence.best_line(w.segments, [56, 57, 58, 59], q, ignore=topic).text
     assert evidence.best_line(w.segments, step2["evidence"], "oven temperature") is None
 
+
+def test_amount_questions_need_their_subject_in_the_video():
+    from crv_guide_mcp import evidence, extract
+    w = extract.load(FIX)
+    g = json.loads((FIX / "guide.json").read_text())
+    passages = evidence.build_passages(w, g)
+    assert evidence.search(passages, "How much sugar does she add?") == []        # no sugar in this recipe
+    assert evidence.unmentioned("How much sugar does she add?", passages) == ["sugar"]
+    hits = evidence.search(passages, "How much water did she use?")
+    assert hits and all("water" in p.toks for _, p in hits)
+    assert evidence.search(passages, "How long does the dough rest?")
+
+
+def test_numbers_in_steps_are_checked_against_the_narration():
+    from crv_guide_mcp import checks, extract, guide
+    w = extract.load(FIX)
+    assert checks.mentions("three-quarters of a cup")[0][1] == {("n", 0.75)}
+    assert ("s", 1800.0) in checks.mentions("about half an hour")[0][1]       # same as "30 minutes"
+    bad = guide.GuideOut(
+        title="t", summary="s", equipment=[],
+        ingredients=[guide.IngredientOut(item="sugar", amount="99 cups", evidence=[0])],
+        steps=[guide.StepOut(title="Invented", say="Add 99 cups of sugar and rest for 12 hours.", look_for="x",
+                             start_s=0, end_s=30, frame=1, wait_s=43200, evidence=[0])],
+    )
+    out = guide.validate(bad, w)
+    st = out["steps"][0]
+    assert "99 cups" in st["unverified"] and "12 hours" in st["unverified"]
+    assert st["wait_s"] is None                                   # no timer from a duration nobody said
+    assert out["ingredients"][0]["unverified"] is True
+    real = checks.check_guide(json.loads((FIX / "guide.json").read_text()), w)
+    assert real["steps"][1]["unverified"] == [] and real["steps"][3]["wait_s"] == 1800   # 3/4 cup, half an hour: said
+
 def test_sessions_survive_and_timers_count_down():
     from crv_guide_mcp import store
     gid = store.save_guide("sample:pasta", "sample:pasta", str(FIX), json.loads((FIX / "guide.json").read_text()))

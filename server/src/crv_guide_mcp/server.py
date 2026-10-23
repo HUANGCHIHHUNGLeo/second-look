@@ -23,7 +23,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 
-from . import config, evidence, extract, guide as guide_mod, store
+from . import checks, config, evidence, extract, guide as guide_mod, store
 
 INSTRUCTIONS = """Use these tools to cook (or build, or fix) along with a video, hands-free.
 1. import_video, then poll get_import until it is ready. 2. start_session (or get_session to resume).
@@ -99,6 +99,7 @@ def _step_card(g: dict[str, Any], idx: int) -> dict[str, Any]:
         "say": st["say"],
         "look_for": st["look_for"],
         "visual_note": st.get("visual_note"),
+        "unverified": st.get("unverified") or [],
         "wait_s": st.get("wait_s"),
         "video_time": f"{extract.clock(st['start_s'])}-{extract.clock(st['end_s'])}",
         "frame_time": extract.clock(st["frame_t"]),
@@ -134,6 +135,8 @@ def _snapshot_text(s: dict[str, Any]) -> str:
     ]
     if st.get("visual_note"):
         lines.append(f"Visible in the video but not said: {st['visual_note']}")
+    if st.get("unverified"):
+        lines.append(f"Not in the narration (inferred from the picture or by the guide writer; say so if asked): {', '.join(st['unverified'])}")
     if st.get("wait_s"):
         lines.append(f"This step has a stated duration of {st['wait_s']} seconds (offer a timer).")
     lines.append(f"Shown in the video at {st['video_time']}. Attached image: the video frame at {st['frame_time']}.")
@@ -219,7 +222,7 @@ def _run_import(job_id: str, source: str) -> None:
         watched = extract.load(folder)
         precompiled = folder / "guide.json"
         if precompiled.exists():
-            data = json.loads(precompiled.read_text())
+            data = checks.check_guide(json.loads(precompiled.read_text()), watched)
         else:
             store.update_job(job_id, stage="writing the step-by-step guide")
             data = guide_mod.compile_guide(watched)
@@ -384,14 +387,19 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
             images.append(fr.path)
     supported = bool(results) and results[0]["score"] >= 1.0
     data = {"question": question, "supported": supported, "evidence": results, "current_step": sess["step_index"] + 1}
+    missing = evidence.unmentioned(question, _passages(g))
+    if missing:
+        data["not_in_video"] = missing
     if not results:
-        text = "The video does not seem to cover this (no matching passage)."
+        text = (f"The video never mentions {', '.join(missing)}." if missing else "The video does not seem to cover this (no matching passage).") + " Say so; do not guess."
     else:
         rows = []
         for r in results:
             where = f"step {r['step_number']}, {r['video_time']}" if "step_number" in r else r["video_time"]
             quote = f' says at {r["said_at"]}: "{r["quote"]}"' if "said_at" in r else ""
             rows.append(f"- [{where}]{quote} | {r['text']}")
+        if missing:
+            rows.append(f"Not mentioned anywhere in the video: {', '.join(missing)}. Say that plainly instead of answering from a different ingredient or step.")
         text = (
             "Evidence from the video. Answer only from this, and name the single time of the line that answers it "
             "(e.g. 'she says it at 1:24'), not a range:\n" + "\n".join(rows) + "\nAttached: the video frames for the top passages."

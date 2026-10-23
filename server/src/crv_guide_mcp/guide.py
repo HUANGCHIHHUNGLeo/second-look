@@ -16,7 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from . import config
+from . import checks, config
 from .extract import Watched, clock, frame_at
 
 
@@ -192,7 +192,7 @@ def validate(out: GuideOut, watched: Watched, model: str | None = None) -> dict[
         {"item": g.item.strip(), "amount": (g.amount or None), "evidence": sorted({i for i in g.evidence if 0 <= i < n_lines})}
         for g in out.ingredients
     ]
-    return {
+    return checks.check_guide({
         "title": out.title.strip(),
         "summary": out.summary.strip(),
         "ingredients": ingredients,
@@ -202,7 +202,7 @@ def validate(out: GuideOut, watched: Watched, model: str | None = None) -> dict[
         "frames": len(watched.frames),
         "transcript_lines": n_lines,
         "model": model,
-    }
+    }, watched)
 
 
 def dumps(data: dict[str, Any]) -> str:

@@ -83,6 +83,25 @@ QUANTITY = re.compile(
     re.I,
 )
 ASKS_QUANTITY = re.compile(r"\bhow (much|many|long|big|thick|thin|hot)\b|temperature|amount|quantity|how much time", re.I)
+# words that say what kind of answer is wanted, not what it is about ("how long does the DOUGH rest")
+GENERIC = {_stem(w) for w in """add adds put pour need needs take get cook mix look see show tell say know want start time
+    video step right good long big thick thin hot temperature amount quantity size""".split()}
+
+
+def subject(question: str) -> list[str]:
+    """What a question is about: "How much sugar does she add?" -> ["sugar"] (stemmed, like the passages)."""
+    return [t for t in tokens(question) if t not in GENERIC]
+
+
+def unmentioned(question: str, passages: list[Passage]) -> list[str]:
+    """Words of the question's subject that appear nowhere in the video, as the person said them."""
+    seen = set().union(*(p.toks for p in passages)) if passages else set()
+    out = []
+    for w in re.findall(r"[a-z0-9]+", question.lower()):
+        t = _stem(w)
+        if w not in STOP and t not in GENERIC and t not in seen and w not in out:
+            out.append(w)
+    return out
 
 
 def best_line(segments: list, line_ids: list[int], question: str, ignore: frozenset[str] = frozenset()):
@@ -139,6 +158,9 @@ def search(passages: list[Passage], question: str, k: int = 4) -> list[tuple[flo
                 # "how much / how long" questions: prefer passages that actually state an amount
                 boost *= 1 + 0.6 * min(3, len(QUANTITY.findall(p.text)))
             scored.append((s * boost, p))
+    if wants_amount and (about := set(subject(question))):
+        # an amount for something the video never mentions is not an answer ("how much sugar?" in a recipe with none)
+        scored = [(sc, p) for sc, p in scored if about & set(p.toks)]
     scored.sort(key=lambda x: -x[0])
     # drop near-duplicate transcript windows that overlap a better one
     picked: list[tuple[float, Passage]] = []

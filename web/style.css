@@ -53,6 +53,7 @@ button, input { font: inherit; }
 .tag { align-self: flex-start; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 8px; border-radius: 6px; }
 .tag.ok { color: var(--ok); background: rgba(70, 211, 154, 0.12); }
 .tag.warm { color: var(--warm); background: rgba(245, 184, 76, 0.12); }
+.tag.check { color: #ff9a8a; background: rgba(255, 120, 100, 0.12); }
 .frame { position: relative; margin: 0; border-radius: 14px; overflow: hidden; background: #000; min-height: 0; display: flex; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08); }
 .frame img { width: 100%; height: 100%; object-fit: cover; display: block; transition: opacity 0.25s ease; }
 .frame figcaption { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -96,6 +97,9 @@ button, input { font: inherit; }
 .lightbar.listen { background: linear-gradient(90deg, transparent, var(--accent), transparent); animation: sweep 1.2s ease-in-out infinite; background-size: 50% 100%; background-repeat: no-repeat; }
 .lightbar.think { background: linear-gradient(90deg, var(--accent-2), var(--accent), var(--accent-2)); animation: pulse 0.9s ease-in-out infinite; }
 .lightbar.speak { background: var(--accent); }
+.lightbar.idle { background: linear-gradient(90deg, transparent, rgba(55, 198, 244, 0.5), transparent); background-size: 30% 100%; background-repeat: no-repeat; animation: sweep 3.2s ease-in-out infinite; }
+button.ghost.on { border-color: var(--accent); color: var(--accent); background: rgba(55, 198, 244, 0.1); }
+.mic.hf { box-shadow: 0 0 0 6px rgba(55, 198, 244, 0.28), 0 0 0 16px rgba(55, 198, 244, 0.08); }
 @keyframes sweep { from { background-position: -50% 0; } to { background-position: 150% 0; } }
 @keyframes pulse { 50% { opacity: 0.45; } }
 
@@ -125,4 +129,4 @@ button.small { padding: 5px 12px; font-size: 13px; }
 .tr .d { color: var(--ink-3); }
 .tr .a { color: var(--ink-2); word-break: break-word; }
 
-@media (prefers-reduced-motion: reduce) { .lightbar.listen, .lightbar.think { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .lightbar.listen, .lightbar.think, .lightbar.idle { animation: none; } }
