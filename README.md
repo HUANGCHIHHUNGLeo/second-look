@@ -72,7 +72,7 @@ cp .env.example .env                                       # add OPENAI_API_KEY 
 ./run.sh                                                   # MCP server :8765 + screen :8770
 ```
 
-Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (needs `GEMINI_API_KEY` for the guide step; a 2–3 minute video takes about a minute to watch, plus the model's time).
+Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our test a 2.5-minute video took about 5 minutes end to end on a busy evening).
 
 Tests: `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation against the video, evidence search, sessions, revision checks, idempotent timers).
 
