@@ -89,6 +89,24 @@ button.pill { cursor: pointer; }
 .moment video, .moment img { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; border-radius: var(--r12); display: block; }
 .moment-cap { display: flex; justify-content: space-between; align-items: center; gap: var(--s12); font-size: var(--body2); color: var(--ink2); }
 .empty { display: grid; place-items: center; height: 100%; color: var(--ink3); font-size: var(--body2); }
+
+/* the recipe: everything on one card; amounts the narration states can be replayed */
+.recipe { position: absolute; inset: 0; background: var(--bg); padding: var(--s12) var(--s16); z-index: 3; display: grid; grid-template-rows: auto auto 1fr; gap: var(--s8); }
+.recipe-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s12); }
+.recipe h2 { font-size: var(--headline2); line-height: 1.2; margin: 0; }
+#recipeClose { padding: 5px 12px; font-size: var(--body3); }
+.recipe-cols { display: grid; grid-template-columns: 1.2fr 1fr; gap: var(--s12); min-height: 0; }
+.recipe .panel { display: flex; flex-direction: column; gap: var(--s6); }
+.ingredients, .steps { margin: 0; padding: 0; list-style: none; display: grid; align-content: start; gap: 2px; font-size: var(--body3); line-height: 1.25; overflow: hidden; flex: 1; min-height: 0; }
+.ingredients li { display: grid; grid-template-columns: 1fr auto; gap: var(--s8); align-items: center; }
+.ingredients b { font-weight: 800; }
+.tag { font-family: inherit; font-size: 0.82em; line-height: 1.3; font-weight: 800; border-radius: 9999px; padding: 0 0.6em; white-space: nowrap; }
+.tag.said { display: inline-flex; align-items: center; gap: 3px; background: var(--brand); color: var(--on-brand); border: 0; cursor: pointer; }
+.tag.not { color: var(--ink3); border: 1px solid var(--line); }
+.steps { counter-reset: n; }
+.steps li { display: grid; grid-template-columns: 18px 1fr; gap: 4px; color: var(--ink2); }
+.steps li::before { counter-increment: n; content: counter(n); color: var(--ink3); font-weight: 800; }
+.steps li.now { color: var(--brand); font-weight: 800; }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: no-preference) {
   .card, .evidence .ev { animation: rise 0.28s cubic-bezier(0.16, 1, 0.3, 1) both; }
@@ -142,6 +160,18 @@ button.pill { cursor: pointer; }
       <div class="moment-cap"><span id="momentCap"></span><button class="btn" id="momentClose"><i class="ph ph-x"></i>Close</button></div>
     </div>
   </div>
+
+  <div class="recipe" id="recipe" hidden>
+    <div class="recipe-head">
+      <div class="label"><i class="ph ph-cooking-pot"></i>Recipe from the video</div>
+      <button class="btn" id="recipeClose"><i class="ph ph-x"></i>Close</button>
+    </div>
+    <h2 id="recipeTitle"></h2>
+    <div class="recipe-cols">
+      <section class="panel"><div class="label"><i class="ph ph-basket"></i>Ingredients · tap a time to hear it said</div><ul class="ingredients" id="recipeIngredients"></ul></section>
+      <section class="panel"><div class="label"><i class="ph ph-list-numbers"></i>Steps</div><ol class="steps" id="recipeSteps"></ol></section>
+    </div>
+  </div>
 </div>
 <script>
 // MCP Apps view: talks to its host (Alexa+, or the simulated Echo Show) with JSON-RPC over postMessage.
@@ -188,7 +218,7 @@ function applyContext(ctx) {
 // ---------------------------------------------------------------- rendering tool results
 function show(result) {
   const d = (result && result.structuredContent) || {};
-  if (!snap && !(d.session_id && d.step) && (Array.isArray(d.evidence) || d.image_url)) {
+  if (!snap && !(d.session_id && d.step) && (Array.isArray(d.evidence) || d.image_url || d.recipe)) {
     // a view opened on an answer or a moment: fetch the session so there is a step to show it on
     callTool("get_session", {}).then(() => show(result));
     return;
@@ -196,7 +226,43 @@ function show(result) {
   if (d.session_id && d.step) renderStep(d);
   if (Array.isArray(d.evidence)) renderEvidence(d.evidence);
   if (d.image_url && d.clip) showMoment(d);
+  if (d.recipe) renderRecipe(d.recipe);
 }
+
+function renderRecipe(r) {
+  $("recipeTitle").textContent = r.title;
+  const ul = $("recipeIngredients"); ul.innerHTML = "";
+  for (const it of r.ingredients) {
+    const li = document.createElement("li"), name = document.createElement("span");
+    if (it.amount) { const b = document.createElement("b"); b.textContent = it.amount + " "; name.appendChild(b); }
+    name.appendChild(document.createTextNode(it.item));
+    let tag;
+    if (it.source === "said") {  // the moment she says it, replayed through the server like an evidence card
+      tag = document.createElement("button"); tag.className = "tag said";
+      tag.innerHTML = '<i class="ph-fill ph-play"></i>'; tag.appendChild(document.createTextNode(` ${it.said_at}`));
+      tag.title = `Said at ${it.said_at}: “${it.quote}”`;
+      tag.onclick = () => callTool("show_moment", { session_id: snap && snap.session_id, at_seconds: it.at_s });
+    } else {
+      tag = document.createElement("span"); tag.className = "tag not";
+      tag.textContent = it.source === "not_said" ? "not said, estimated" : "amount not said";
+    }
+    li.append(name, tag); ul.appendChild(li);
+  }
+  const ol = $("recipeSteps"); ol.innerHTML = "";
+  for (const st of r.steps) {
+    const li = document.createElement("li"); li.textContent = st.title;
+    if (snap && st.step_number === snap.step.step_number) li.className = "now";
+    ol.appendChild(li);
+  }
+  $("recipe").hidden = false;
+  for (const list of [ul, ol]) {  // a long recipe steps down a size instead of losing its last lines
+    for (const size of ["12px", "11px", "10px", "9px"]) {
+      list.style.fontSize = size;
+      if (list.scrollHeight <= list.clientHeight + 1) break;
+    }
+  }
+}
+const closeRecipe = () => { $("recipe").hidden = true; };
 
 function renderStep(s) {
   const changed = !snap || snap.step.step_number !== s.step.step_number || snap.session_id !== s.session_id;
@@ -223,7 +289,7 @@ function renderStep(s) {
   $("nextBox").hidden = !s.next_step_title; $("nextTitle").textContent = s.next_step_title || "";
   fitWords();
   for (const b of ["backBtn", "repeatBtn", "nextBtn"]) $(b).disabled = false;
-  if (changed) { $("evidence").innerHTML = ""; $("frameBox").hidden = false; mediaLabel("From the video"); closeMoment(); }
+  if (changed) { $("evidence").innerHTML = ""; $("frameBox").hidden = false; mediaLabel("From the video"); closeMoment(); closeRecipe(); }
 }
 
 // A long instruction steps down a size until the panel holds it; nothing scrolls on a kitchen screen.
@@ -241,6 +307,7 @@ function renderEvidence(list) {
   const box = $("evidence"); box.innerHTML = "";
   $("frameBox").hidden = list.length > 0;  // the answers take the picture's place until the step changes
   mediaLabel(list.length ? "Answer from the video · tap to replay" : "From the video");
+  closeRecipe();
   for (const e of list.slice(0, 3)) {
     const b = document.createElement("button");
     b.className = "ev";
@@ -258,6 +325,7 @@ function renderEvidence(list) {
 
 let stopTimer = null, playToken = 0;
 function showMoment(d) {
+  closeRecipe();
   $("moment").hidden = false;
   const img = $("momentImg"), v = $("clip");
   const token = ++playToken;
@@ -304,6 +372,7 @@ $("repeatBtn").onclick = () => move("repeat");
 $("nextBtn").onclick = () => move("next");
 $("replayBtn").onclick = () => snap && callTool("show_moment", { session_id: snap.session_id, step_number: snap.step.step_number });
 $("momentClose").onclick = closeMoment;
+$("recipeClose").onclick = closeRecipe;
 
 (async () => {
   const r = await request("ui/initialize", {

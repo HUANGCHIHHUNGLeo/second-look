@@ -141,6 +141,36 @@ def _step_line_ids(watched: Watched, step: dict[str, Any]) -> list[int]:
     return sorted(set(cited) | set(spoken))
 
 
+def said_where(amount: str | None, item: str, watched: Watched, evidence: list[int] = ()) -> int | None:
+    """The transcript line that states this amount of this ingredient, or None when the narration never says it.
+
+    Stricter than the guide check: the unit must be the same ("one" alone is not "1 tsp"), and an amount without
+    a unit counts only next to the ingredient's name. The lines the guide cites for the ingredient are tried first,
+    so "two cups of each" counts for both flours."""
+    amounts = mentions(amount or "")
+    if not amounts:
+        return None
+    words = {_stem(w) for w in re.findall(r"[a-z]+", (item or "").lower()) if w not in NOT_NOUNS and len(w) > 2}
+    near = sorted({j for i in evidence for j in (i - 1, i, i + 1) if 0 <= j < len(watched.segments)})
+
+    def states(a: Amount, e: Amount, i: int, need_name: bool) -> bool:
+        if not a.numbers & e.numbers:
+            return False
+        if a.unit and a.unit != "time" and e.unit != a.unit:
+            return False
+        line = {_stem(w) for w in re.findall(r"[a-z]+", watched.segments[i].text.lower())}
+        return not need_name or bool(words & line)
+
+    for a in amounts:
+        for i, e in _said(watched, near):
+            if states(a, e, i, need_name=not a.unit):
+                return i
+        for i, e in _said(watched, list(range(len(watched.segments)))):
+            if states(a, e, i, need_name=True):
+                return i
+    return None
+
+
 def check_guide(data: dict[str, Any], watched: Watched) -> dict[str, Any]:
     """Annotate a guide in place: `unverified` amounts per step and ingredient; drop timers the narration doesn't support."""
     checked = flagged = 0

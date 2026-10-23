@@ -124,7 +124,7 @@ def test_session_tools_carry_the_mcp_apps_view():
     import asyncio
     from crv_guide_mcp import server
     tools = {t.name: t for t in asyncio.run(server.mcp.list_tools())}
-    for name in ["start_session", "get_session", "move_step", "ask_source", "show_moment", "set_timer"]:
+    for name in ["start_session", "get_session", "move_step", "ask_source", "show_moment", "set_timer", "get_recipe"]:
         assert tools[name].meta["ui"]["resourceUri"] == "ui://second-look/cook.html"
     assert "ui" not in (tools["import_video"].meta or {})
     contents = list(asyncio.run(server.mcp.read_resource("ui://second-look/cook.html")))
@@ -154,3 +154,19 @@ def test_each_quoted_line_is_shown_once():
         r = asyncio.run(server.ask_source(question=q, session_id=sid))
         said = [e["said_at"] for e in r.structured_content["evidence"] if "said_at" in e]
         assert said and len(said) == len(set(said))   # a step and a transcript window quoting one line make one card
+
+
+def test_recipe_cites_only_amounts_the_narration_states():
+    import asyncio
+    from crv_guide_mcp import checks, extract, server, store
+    w = extract.load(FIX)
+    assert extract.clock(w.segments[checks.said_where("3/4 cup", "Cold water", w, [22, 25, 29])].start) == "1:24"
+    assert checks.said_where("1 tsp", "Fresh thyme", w) is None        # "one of the last things" is not one teaspoon
+    gid = store.save_guide("sample:pasta", "sample:pasta", str(FIX), json.loads((FIX / "guide.json").read_text()))
+    sid = store.create_session(gid)
+    r = asyncio.run(server.get_recipe(session_id=sid)).structured_content["recipe"]
+    rows = {i["item"]: i for i in r["ingredients"]}
+    assert rows["Cold water"]["source"] == "said" and rows["Cold water"]["said_at"] == "1:24"
+    assert rows["All-purpose flour"]["said_at"] == "0:44"               # "two cups of each", cited for the flour
+    assert rows["Fresh thyme"]["source"] == "not_said" and rows["Leeks"]["source"] == "unstated"
+    assert len(r["steps"]) == 13

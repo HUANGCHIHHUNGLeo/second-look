@@ -425,6 +425,45 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
     return _result(data, text, images)
 
 
+@mcp.tool(title="Recipe from the video", annotations=ToolAnnotations(readOnlyHint=True), meta=UI_META)
+async def get_recipe(session_id: str | None = None) -> CallToolResult:
+    """The whole recipe on one card: ingredients with amounts, then the steps in order. Use it for "what do I need", "what are the ingredients" or "show me the recipe". An amount the narration states comes with the time it is said; an amount the video never says is marked as such, so say that instead of guessing. Never moves the step."""
+    sess, g, err = _load(session_id)
+    if err:
+        return _error(err)
+    watched = _watched(g)
+    items = []
+    for ing in g.get("ingredients", []):
+        row: dict[str, Any] = {"item": ing["item"], "amount": ing.get("amount")}
+        i = checks.said_where(ing.get("amount"), ing["item"], watched, ing.get("evidence", [])) if ing.get("amount") else None
+        if i is not None:
+            ln = watched.segments[i]
+            row.update(source="said", said_at=extract.clock(ln.start), at_s=round(ln.start, 1), quote=ln.text)
+        else:
+            row["source"] = "not_said" if ing.get("amount") else "unstated"  # the guide's own estimate / no amount at all
+        items.append(row)
+    steps = [{"step_number": st["step_number"], "title": st["title"]} for st in g["steps"]]
+    said = sum(1 for r in items if r["source"] == "said")
+    speak = f"Here's the recipe: {len(items)} ingredients and {len(steps)} steps. {said} of the amounts are said in the video, and the screen shows when."
+    data = {
+        "recipe": {"title": g["title"], "summary": g.get("summary", ""), "ingredients": items,
+                   "equipment": g.get("equipment", []), "steps": steps},
+        "session_id": sess["id"], "current_step": sess["step_index"] + 1, "speak": speak,
+    }
+    rows = []
+    for r in items:
+        what = f"{r['amount']} {r['item']}" if r["amount"] else r["item"]
+        if r["source"] == "said":
+            rows.append(f'- {what}: said at {r["said_at"]} ("{r["quote"]}")')
+        elif r["source"] == "not_said":
+            rows.append(f"- {what}: this amount is not said in the video (the guide's estimate from what it shows)")
+        else:
+            rows.append(f"- {r['item']}: the video doesn't say how much")
+    text = (f"Recipe: {g['title']}\nIngredients:\n" + "\n".join(rows) + "\nSteps: " + "; ".join(f"{s_['step_number']}. {s_['title']}" for s_ in steps)
+            + f"\nSuggested spoken reply: {speak}")
+    return _result(data, text)
+
+
 @mcp.tool(title="Show the moment in the video", annotations=ToolAnnotations(readOnlyHint=True), meta=UI_META)
 async def show_moment(
     session_id: str | None = None,
