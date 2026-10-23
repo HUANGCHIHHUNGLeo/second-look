@@ -1,4 +1,4 @@
-# Devpost submission draft: Second Look
+# Devpost submission: Second Look
 
 ## Project name
 Second Look
@@ -13,7 +13,7 @@ Alexa+ follows a cooking video with you, hands-free, because it actually watched
 ## About the project
 
 ### In 30 seconds
-- **What:** an Alexa+ add-on that follows a cooking video with you, hands-free, because it actually watched it. Every answer cites the moment it was said and can replay it; "What do I need?" shows the recipe with the time each amount is said.
+- **What:** an Alexa+ add-on that follows a cooking video with you, hands-free, because it actually watched it. Answers come with the moments in the video that support them, ready to replay; "What do I need?" shows the recipe with the time each amount is said.
 - **Why:** 51% of YouTube users say it is very important for figuring out how to do things they haven't done before ([Pew Research Center, 2018](https://www.pewresearch.org/internet/2018/11/07/many-turn-to-youtube-for-childrens-content-news-how-to-lessons/)). In a kitchen your hands are busy, so the video has to come to you.
 - **Built for the device:** voice first, readable from across the kitchen, a hands-free wake word, and the microphone closes while a clip plays.
 - **How:** a self-hosted MCP server (spec 2025-11-25, Streamable HTTP, 11 tools) that ships its screen as an MCP Apps view built on Amazon's Alexa+ add-on guide; an AWS Strands agent talks to it; numbers are checked against the narration.
@@ -57,6 +57,11 @@ Second Look gives Alexa+ a video it has actually watched:
 
 ### What we learned
 MCP is a good fit for "skills" that need memory and media: structured content plus images in one tool result lets the voice side talk and the screen side show, from the same call. MCP Apps closes the loop: the same server ships the screen itself, so the add-on's UI travels with the tools instead of living in each client. And grounding has to be checked in code; asking a model to "only use the video" is not enough.
+
+### Limits
+- Tested on two narrated cooking videos so far. Importing a 2.5-minute video took 2 to 12 minutes on deadline night; an import that has finished is reused at once.
+- The checks are lexical (numbers, units, nearby words), not a proof of meaning, and the sentence Alexa speaks is not re-checked after the model writes it; the evidence cards on screen come from the tool, not from the model.
+- Not tested on a real Alexa+ device (the developer tools are partner-only). Voice was tested in Chrome with a scripted recognizer, not yet in a noisy kitchen.
 
 ### What's next
 Test hands-free mode with real cooks in real kitchens, support more how-to categories (repairs, crafts, workouts), let the user point the camera at their own result and compare it to the video's frame, and run on a real Alexa+ device when the developer tools open up.

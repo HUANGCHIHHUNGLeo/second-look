@@ -64,6 +64,14 @@ Everything below is what we actually ran into while building this project, with 
 - **Onboarding:** minutes for push-to-talk; the hands-free loop (pausing while speaking and while a clip plays) took most of the effort.
 - **Would we build with it again:** for a simulation, yes; on a device, Alexa's own speech stack replaces it.
 
+## Supporting tools
+| Tool | Used for | What worked well | What needs work | Onboarding | Again? |
+|---|---|---|---|---|---|
+| ffmpeg | Exact frames at a second, clip audio, the demo video | One binary does all of it; `-ss` before `-i` makes frame grabs instant | Filter-graph errors are hard to read | Long familiar | Yes |
+| SQLite | Guides, sessions with a revision check, timer deadlines | Zero setup; a restart keeps everything | One writer at a time; fine for one kitchen, not for a shared server | Minutes | Yes, for a single host |
+| Starlette / uvicorn | The MCP endpoint, media routes, the host page | The MCP SDK mounts into it directly; CORS and routes are a few lines | Shutdown during a streaming request can wait for the client | Minutes | Yes |
+| Playwright | The hands-free and New video browser checks, the demo recording | Frame locators reach into the sandboxed view; video recording is built in | Recording waits must be tuned by hand | Quick; the sandboxed iframe took the most care | Yes |
+
 ## Friction log
 
 | # | Task | Steps | Expected | Actual | Severity | Workaround | Suggestion |

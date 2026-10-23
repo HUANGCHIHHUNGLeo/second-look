@@ -1,6 +1,6 @@
 """Second Look web app: serves the simulated Alexa+ screen and runs the Strands agent.
 
-    python -m app.main  (then open http://127.0.0.1:8770)
+    python -m second_look.main  (then open http://127.0.0.1:8770)
 """
 
 from __future__ import annotations

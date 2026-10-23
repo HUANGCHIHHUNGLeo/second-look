@@ -23,7 +23,7 @@ OPENAI_GUIDE_MODEL = os.environ.get("CRV_GUIDE_OPENAI_MODEL", "gpt-4.1")
 # Public base URL of this server, used to build frame/video links that a screen can load.
 PUBLIC_BASE_URL = os.environ.get("CRV_GUIDE_PUBLIC_URL", "http://127.0.0.1:8765").rstrip("/")
 
-# Browser origins allowed to call /mcp directly (a web client such as the Sous Video simulator).
+# Browser origins allowed to call /mcp directly (a web client such as the Second Look host).
 ALLOWED_ORIGINS = [
     o.strip()
     for o in os.environ.get("CRV_GUIDE_ALLOWED_ORIGINS", "http://127.0.0.1:8770,http://localhost:8770").split(",")
