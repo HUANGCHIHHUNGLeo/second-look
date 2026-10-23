@@ -16,7 +16,7 @@ Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · 
 
 > Demo video: https://youtu.be/tgE5cRr50LM
 
-![Second Look screen](docs/screen.png)
+![Second Look on a simulated Echo Show: "How much water did she use?" answered from the line she says at 1:24, with evidence cards to replay](docs/screen.png)
 
 ---
 
