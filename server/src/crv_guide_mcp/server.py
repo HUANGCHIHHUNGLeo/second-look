@@ -374,9 +374,9 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
     results, images, said_times = [], [], set()
     for score, p in hits:
         ln = evidence.best_line(watched.segments, p.lines, question)
-        if p.kind == "said" and ln is not None:
+        if ln is not None:
             if round(ln.start, 1) in said_times:
-                continue  # another window already quotes this line
+                continue  # a better-scored passage (a step or another window) already quotes this line
             said_times.add(round(ln.start, 1))
         item: dict[str, Any] = {
             "kind": "what was said" if p.kind == "said" else f"step {p.step_number} (said + visible in the frame)",

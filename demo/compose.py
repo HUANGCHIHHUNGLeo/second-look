@@ -29,7 +29,7 @@ NARR = {
     "title": "Second Look lets Alexa plus follow the video with you, because it actually watched it.",
     "restart": "Now close the browser, and restart the server.",
     "fresh": "And a video it has never seen.",
-    "newvideo": "Paste a link. crv watches it, frames and a timestamped transcript, and a model writes the steps. This one took {took}, sped up here.",
+    "newvideo": "Paste a link. crv watches it, and a model writes the steps. Tonight that took {took}, sped up here.",
     "trace": "Under the hood: the screen is an MCP Apps host, and the Strands agent and the screen share one MCP server.",
     "end": "Second Look. Cook along with a video, hands-free. Open source.",
 }
@@ -255,7 +255,7 @@ def main() -> None:
             e["dur"] = max(4.0, nd - 4.0)
     tail = next(e for e in s3 if e["kind"] == "tail")
     ta, td = narr("trace")
-    tail["dur"] = td + 1.2
+    tail["dur"] = td + 0.6
     banner = f"First time watching this video: {took_s // 60} min {took_s % 60:02d} s in real time, sped up here"
     pieces = [
         intro(),
@@ -266,7 +266,7 @@ def main() -> None:
         card("fresh", "fresh", 2.4, 0.3),
         segment("seg3", s3, lead=0.6, extra_audio=[(t_start + 0.2, na, 1.0), (tail["at"] + 0.3, ta, 1.0)],
                 banners=[(t_start - 0.5, t_done + 0.3, banner)], source=new_video_source()),
-        card("end", "end", 4.6, 1.2),
+        card("end", "end", 4.2, 1.0),
     ]
     lst = WORK / "list.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in pieces))

@@ -143,3 +143,14 @@ def test_amounts_must_match_unit_and_ingredient():
     g = checks.check_guide({"steps": [step("Add two cups of sugar."), step("Add two teaspoons of salt."),
                                       step("Add two cups of flour."), step("Bake for fourteen minutes.")]}, said)
     assert [s["unverified"] for s in g["steps"]] == [["two cups"], [], [], []]   # sugar is not flour, cups are not teaspoons
+
+
+def test_each_quoted_line_is_shown_once():
+    import asyncio
+    from crv_guide_mcp import server, store
+    gid = store.save_guide("sample:pasta", "sample:pasta", str(FIX), json.loads((FIX / "guide.json").read_text()))
+    sid = store.create_session(gid)
+    for q in ["How much water did she use?", "how long does she knead the dough?"]:
+        r = asyncio.run(server.ask_source(question=q, session_id=sid))
+        said = [e["said_at"] for e in r.structured_content["evidence"] if "said_at" in e]
+        assert said and len(said) == len(set(said))   # a step and a transcript window quoting one line make one card

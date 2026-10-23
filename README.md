@@ -14,7 +14,7 @@ Cooking from a video is awkward when your hands are covered in flour: the video 
 
 Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · Mini challenges: **AWS Builder** (Strands Agents SDK), **Open Source**.
 
-> Demo video: https://youtu.be/4LWIURQBZ9w
+> Demo video: https://youtu.be/tgE5cRr50LM
 
 ![Second Look screen](docs/screen.png)
 
