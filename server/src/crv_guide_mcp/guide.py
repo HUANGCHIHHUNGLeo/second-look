@@ -83,18 +83,58 @@ def _jpeg_bytes(path, width: int = 448) -> bytes:
 
 
 def compile_guide(watched: Watched) -> dict[str, Any]:
-    if not config.GEMINI_API_KEY:
-        raise RuntimeError("Set GEMINI_API_KEY to build guides.")
     if not watched.segments:
         raise RuntimeError("crv found no speech in this video, so there is nothing to build a guide from.")
-    from google import genai
-    from google.genai import types
-
+    if not config.GEMINI_API_KEY and not config.OPENAI_API_KEY:
+        raise RuntimeError("Set GEMINI_API_KEY or OPENAI_API_KEY to build guides.")
     lines = "\n".join(
         f"[{s.index}] {clock(s.start)}-{clock(s.end)} {s.text}" for s in watched.segments
     )
-    parts: list[Any] = [PROMPT, f"Video length: {clock(watched.duration_s)}\n\nTRANSCRIPT:\n{lines}\n\nKEYFRAMES:"]
-    for f in _thin(watched.frames, config.MAX_GUIDE_FRAMES):
+    header = f"Video length: {clock(watched.duration_s)}\n\nTRANSCRIPT:\n{lines}\n\nKEYFRAMES:"
+    frames = _thin(watched.frames, config.MAX_GUIDE_FRAMES)
+    errors: list[str] = []
+    if config.GEMINI_API_KEY:
+        try:
+            return _compile_gemini(watched, header, frames)
+        except RuntimeError as e:
+            errors.append(str(e))
+    if config.OPENAI_API_KEY:
+        try:
+            return _compile_openai(watched, header, frames)
+        except Exception as e:  # noqa: BLE001
+            errors.append(f"OpenAI: {e}")
+    raise RuntimeError("The guide model is unavailable right now: " + " | ".join(errors))
+
+
+def _compile_openai(watched: Watched, header: str, frames: list) -> dict[str, Any]:
+    """Fallback writer: an OpenAI vision model, asked for the same JSON shape."""
+    import base64
+
+    from openai import OpenAI
+
+    schema = json.dumps(GuideOut.model_json_schema())
+    content: list[dict[str, Any]] = [{"type": "text", "text": PROMPT + "\nReply with one JSON object matching this JSON schema:\n" + schema + "\n\n" + header}]
+    for f in frames:
+        content.append({"type": "text", "text": f"Frame {f.index} at {clock(f.t)} ({f.t:.1f}s)"})
+        b64 = base64.b64encode(_jpeg_bytes(f.path, width=384)).decode()
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"}})
+    client = OpenAI(api_key=config.OPENAI_API_KEY)
+    resp = client.chat.completions.create(
+        model=config.OPENAI_GUIDE_MODEL,
+        messages=[{"role": "user", "content": content}],
+        response_format={"type": "json_object"},
+        temperature=0.2,
+    )
+    out = GuideOut.model_validate_json(resp.choices[0].message.content)
+    return validate(out, watched, model=resp.model)
+
+
+def _compile_gemini(watched: Watched, header: str, frames: list) -> dict[str, Any]:
+    from google import genai
+    from google.genai import types
+
+    parts: list[Any] = [PROMPT, header]
+    for f in frames:
         parts.append(f"Frame {f.index} at {clock(f.t)} ({f.t:.1f}s)")
         parts.append(types.Part.from_bytes(data=_jpeg_bytes(f.path), mime_type="image/jpeg"))
 
@@ -112,8 +152,10 @@ def compile_guide(watched: Watched) -> dict[str, Any]:
                 last = e
                 if not any(code in str(e) for code in ("503", "429", "500", "UNAVAILABLE", "RESOURCE_EXHAUSTED")):
                     break
+                if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
+                    break  # quota: no point retrying this model
                 time.sleep(2 * (attempt + 1))
-    raise RuntimeError(f"The guide model is unavailable right now: {last}")
+    raise RuntimeError(f"Gemini: {last}")
 
 
 def validate(out: GuideOut, watched: Watched, model: str | None = None) -> dict[str, Any]:

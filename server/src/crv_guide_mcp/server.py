@@ -119,6 +119,7 @@ def _snapshot(sess: dict[str, Any], g: dict[str, Any]) -> dict[str, Any]:
         "step": _step_card(g, idx),
         "next_step_title": nxt,
         "completed_steps": [i + 1 for i in sess["completed"]],
+        "outline": [f"{x['step_number']}. {x['title']}" for x in g["steps"]],
         "timers": store.timers_for(sess["id"]),
         "updated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(sess["updated_at"])),
     }
@@ -142,15 +143,40 @@ def _snapshot_text(s: dict[str, Any]) -> str:
         lines.append(f"Next step: {s['next_step_title']}.")
     else:
         lines.append("This is the last step.")
+    lines.append("All steps (use move_step goto with the number to jump): " + "; ".join(s["outline"]))
     return "\n".join(lines)
 
 
-def _session_result(sess: dict[str, Any], g: dict[str, Any], prefix: str = "") -> CallToolResult:
+def _minutes(seconds: float) -> str:
+    m = int(seconds // 60)  # a countdown says "29 minutes left" until 29 full minutes remain
+    return "less than a minute" if seconds < 60 else f"{m} minute{'s' if m != 1 else ''}"
+
+
+def _speak(snap: dict[str, Any], resume: bool) -> str:
+    """A short voice-ready line, the way a skill hands Alexa its output speech; the screen shows the rest."""
+    st = snap["step"]
+    if snap["status"] == "finished":
+        return "That was the last step. Enjoy!"
+    if resume:
+        out = f"You're on step {st['step_number']}, {st['title'].lower()}."
+        for t in snap["timers"]:
+            label = t["label"].lower()
+            out += f" Your {label} timer is done." if t["remaining_s"] <= 0 else f" Your {label} timer has {_minutes(t['remaining_s'])} left."
+        return out
+    out = f"Step {st['step_number']}. {st['say']}"
+    if st.get("wait_s") and not snap["timers"]:
+        out += f" Want a {_minutes(st['wait_s']).replace(' minutes', '-minute')} timer?"
+    return out
+
+
+def _session_result(sess: dict[str, Any], g: dict[str, Any], prefix: str = "", resume: bool = False) -> CallToolResult:
     snap = _snapshot(sess, g)
+    snap["speak"] = _speak(snap, resume)
     frame = _watched(g)
     st = g["steps"][min(sess["step_index"], len(g["steps"]) - 1)]
     img = next((f.path for f in frame.frames if f.index == st["frame"]), None)
-    return _result(snap, (prefix + "\n" if prefix else "") + _snapshot_text(snap), [img] if img else [])
+    text = (prefix + "\n" if prefix else "") + f"Suggested spoken reply: {snap['speak']}\n" + _snapshot_text(snap)
+    return _result(snap, text, [img] if img else [])
 
 
 def _load(session_id: str | None) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str | None]:
@@ -276,7 +302,7 @@ async def get_session(session_id: str | None = None) -> CallToolResult:
     if err:
         return _error(err)
     ago = int(time.time() - sess["updated_at"])
-    return _session_result(sess, g, f"Resuming session {sess['id']} (last activity {ago // 60} min ago).")
+    return _session_result(sess, g, f"Resuming session {sess['id']} (last activity {ago // 60} min ago).", resume=True)
 
 
 @mcp.tool(title="Move to another step", annotations=ToolAnnotations(readOnlyHint=False))
@@ -324,20 +350,33 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
         return _error(err)
     hits = evidence.search(_passages(g), question, k=4)
     watched = _watched(g)
-    results, images = [], []
+    results, images, said_times = [], [], set()
     for score, p in hits:
-        item = {
+        ln = evidence.best_line(watched.segments, p.lines, question)
+        if p.kind == "said" and ln is not None:
+            if round(ln.start, 1) in said_times:
+                continue  # another window already quotes this line
+            said_times.add(round(ln.start, 1))
+        item: dict[str, Any] = {
             "kind": "what was said" if p.kind == "said" else f"step {p.step_number} (said + visible in the frame)",
             "video_time": f"{extract.clock(p.start)}-{extract.clock(p.end)}",
             "start_s": round(p.start, 1),
             "text": p.text,
             "score": round(score, 2),
         }
+        if ln is not None:
+            item["said_at"] = extract.clock(ln.start)
+            item["at_s"] = round(ln.start, 1)
+            item["quote"] = ln.text
+            item["clip"] = {"start_s": round(max(0.0, ln.start - 1.0), 1), "end_s": round(min(watched.duration_s, ln.end + 4.0), 1)}
+        else:
+            item["clip"] = {"start_s": round(p.start, 1), "end_s": round(min(p.end, p.start + 12.0), 1)}
         if p.kind == "step":
+            item["step_number"] = p.step_number
             st = g["steps"][p.step_number - 1]
             fr = next(f for f in watched.frames if f.index == st["frame"])
         else:
-            fr = extract.frame_at(watched, (p.start + p.end) / 2)
+            fr = extract.frame_at(watched, (ln.start + 1.0) if ln is not None else (p.start + p.end) / 2)
         item["frame_time"] = extract.clock(fr.t)
         item["frame_url"] = _media(g["guide_id"], "frame", str(fr.index))
         results.append(item)
@@ -348,23 +387,45 @@ async def ask_source(question: str, session_id: str | None = None) -> CallToolRe
     if not results:
         text = "The video does not seem to cover this (no matching passage)."
     else:
-        text = "Evidence from the video (answer only from this):\n" + "\n".join(
-            f"- [{r['video_time']}] ({r['kind']}): {r['text']}" for r in results
-        ) + "\nAttached: the video frames for the top passages."
+        rows = []
+        for r in results:
+            where = f"step {r['step_number']}, {r['video_time']}" if "step_number" in r else r["video_time"]
+            quote = f' says at {r["said_at"]}: "{r["quote"]}"' if "said_at" in r else ""
+            rows.append(f"- [{where}]{quote} | {r['text']}")
+        text = (
+            "Evidence from the video. Answer only from this, and name the single time of the line that answers it "
+            "(e.g. 'she says it at 1:24'), not a range:\n" + "\n".join(rows) + "\nAttached: the video frames for the top passages."
+        )
     return _result(data, text, images)
 
 
 @mcp.tool(title="Show the moment in the video", annotations=ToolAnnotations(readOnlyHint=True))
-async def show_moment(session_id: str | None = None, step_number: int | None = None, at_seconds: float | None = None) -> CallToolResult:
-    """Show what the video looks like at a step (default: the current step's key frame) or at an exact second. Returns the frame as an image plus a clip (start/end seconds) a screen can replay."""
+async def show_moment(
+    session_id: str | None = None,
+    step_number: int | None = None,
+    at_seconds: float | None = None,
+    query: str | None = None,
+) -> CallToolResult:
+    """Show what the video looks like: at a technique described in words (query, e.g. "pressing the thumb into the dough"; preferred for "show me how she does X"), at an exact second the person named (at_seconds), or at a step (default: the current step's key frame). Returns the frame as an image plus a clip (start/end seconds) a screen can replay."""
     sess, g, err = _load(session_id)
     if err:
         return _error(err)
     watched = _watched(g)
+    if query and at_seconds is None:
+        hits = evidence.search(_passages(g), query, k=3)
+        topic = frozenset(evidence.tokens(g["title"]))  # "orecchiette" names the dish, "thumb" names the move
+        line = evidence.best_line(watched.segments, sorted({i for _, p in hits for i in p.lines}), query, ignore=topic)
+        if line is not None:
+            at_seconds = line.start + 2.0  # creators usually show the move a beat after they name it
+        elif hits:
+            st = g["steps"][hits[0][1].step_number - 1]
+            at_seconds = st["frame_t"]
+    elif at_seconds is not None and any(abs(seg.start - at_seconds) < 0.35 for seg in watched.segments):
+        at_seconds += 2.0  # a time taken from a quoted line: show the move a beat after the words, replay from the words
     if at_seconds is not None:
         t = max(0.0, min(float(at_seconds), watched.duration_s))
         img = extract.exact_frame(watched, t)
-        clip = {"start_s": max(0.0, t - 4), "end_s": min(watched.duration_s, t + 8)}
+        clip = {"start_s": max(0.0, t - 2), "end_s": min(watched.duration_s, t + 8)}
         label = f"the video at {extract.clock(t)}"
     else:
         idx = (step_number - 1) if step_number else sess["step_index"]
@@ -390,7 +451,8 @@ async def set_timer(seconds: int, label: str, session_id: str | None = None, req
     t = store.add_timer(sess["id"], int(seconds), label.strip()[:60] or "Timer", request_id)
     timers = store.timers_for(sess["id"])
     me = next(x for x in timers if x["timer_id"] == t["id"])
-    return _result({"timer": me, "timers": timers}, f"Timer '{me['label']}' set for {seconds // 60} min {seconds % 60} s; due {me['due_at_utc']}.")
+    speak = f"Timer set: {me['label'].lower()}, {_minutes(seconds)}."
+    return _result({"timer": me, "timers": timers, "speak": speak}, f"Suggested spoken reply: {speak}\nTimer '{me['label']}' set for {seconds // 60} min {seconds % 60} s; due {me['due_at_utc']}.")
 
 
 @mcp.tool(title="Cancel a timer", annotations=ToolAnnotations(readOnlyHint=False, idempotentHint=True))
@@ -534,6 +596,7 @@ class TraceMiddleware:
 
 def build_app():
     config.ensure_dirs()
+    store.fail_stale_jobs()
     hostport = config.PUBLIC_BASE_URL.split("://", 1)[-1]
     security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,

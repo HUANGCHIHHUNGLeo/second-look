@@ -36,11 +36,14 @@
           </div>
 
           <div class="card" id="stepCard" hidden>
-            <div class="kicker"><span id="stepNo">Step 1 of 1</span><span class="dot">·</span><span id="guideTitle"></span></div>
-            <h1 id="stepTitle"></h1>
-            <p class="say" id="stepSay"></p>
-            <p class="look"><span class="eye" aria-hidden="true">◉</span><span><b>Looks right when</b> <span id="stepLook"></span></span></p>
-            <p class="seen" id="stepSeen" hidden><b>Only in the picture:</b> <span></span></p>
+            <div class="text">
+              <div class="kicker"><span id="stepNo">Step 1 of 1</span><span class="dot">·</span><span id="guideTitle"></span></div>
+              <div class="progress" id="progress"></div>
+              <h1 id="stepTitle"></h1>
+              <p class="say" id="stepSay"></p>
+              <p class="look"><span class="tag ok">Looks right when</span><span id="stepLook"></span></p>
+              <p class="seen" id="stepSeen" hidden><span class="tag warm">Only in the picture</span><span></span></p>
+            </div>
             <figure class="frame" id="frameBox">
               <img id="frameImg" alt="Frame from the video">
               <figcaption><span class="pill" id="frameTime">from the video at 0:00</span><button class="pill btn" id="replayBtn">▶ Replay this part</button></figcaption>
@@ -51,10 +54,10 @@
         <aside class="side">
           <div class="talk" id="talk">
             <div class="you" id="youSaid"></div>
-            <div class="alexa" id="alexaSaid">Say “Alexa” or tap the mic.</div>
-            <div class="evidence" id="evidence"></div>
+            <div class="alexa" id="alexaSaid">Tap the mic and ask anything about the video.</div>
+            <div class="next" id="nextBox" hidden><span>Up next</span><b id="nextTitle"></b></div>
           </div>
-          <div class="next" id="nextBox" hidden><span>Up next</span><b id="nextTitle"></b></div>
+          <div class="evidence" id="evidence"></div>
         </aside>
       </main>
 

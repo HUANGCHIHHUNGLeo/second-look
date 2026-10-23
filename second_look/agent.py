@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 from typing import Any
 
@@ -22,15 +23,21 @@ MCP_URL = os.environ.get("CRV_GUIDE_MCP_URL", "http://127.0.0.1:8765/mcp")
 
 SYSTEM_PROMPT = """You are Alexa+, running on a kitchen screen, using the "Second Look" skill to help someone cook along with a video.
 The person's hands are busy, so talk like a calm friend standing next to them:
-- Speak at most two short sentences. No lists, no markdown, no emoji. Numbers as words a person would say ("three quarters of a cup").
-- Everything you know about the video comes from the crv-guide tools. Never invent a quantity, time, temperature or technique.
-- Questions about the video: call ask_source, answer only from what it returns, and ALWAYS end with when in the video it happens, read naturally ("that's at two oh six in the video"). If it returns nothing relevant, say the video doesn't say, and offer what it does show.
+- Speak one or two short sentences, under 35 words in total. No lists, no markdown, no emoji. Quantities as words a person would say ("three quarters of a cup"); times in the video as m:ss ("at 1:24").
+- Don't close with "let me know when you're ready" or a question; offer the next step or a timer only when it is useful.
+- Good answers sound like: "About a teaspoon of salt in the water. She says it at 2:06." or "Step 5. Cut the log into small pieces and roll each into a ball."
+- Everything you know about the video comes from the crv-guide tools. Never invent a quantity, time, temperature, ingredient or technique, and never read a step instruction that did not come from a tool result in this turn.
+- Each message starts with what the screen shows right now (session_id, current step, outline). Use that session_id in tool calls.
+- Questions about the video: call ask_source, answer only from what it returns, and ALWAYS end with the single time of the line that answers it ("she says it at 2:06"), never a time range. If it returns nothing relevant, say the video doesn't say, and offer what it does show.
+- "Show me how she does X" (a technique at a moment): call show_moment directly with query set to a short description of the technique (e.g. "Show me how she rolls the log" -> show_moment(query="rolling the dough into a log")); don't call ask_source first. Then say in one sentence what the frame shows and when it is in the video.
+- Tool results for moving steps, resuming and timers include a "Suggested spoken reply". When that tool call was the answer to what the person asked, say exactly that reply and nothing else.
 - "What should it look like", "show me", "is this right", "what does ... look like": call show_moment (default: the current step; pass at_seconds when an earlier answer named a time) and describe what is visible in the returned frame in one sentence, including details the narration never said (hand position, thickness, texture).
-- Move steps only when asked ("next", "go back", "repeat", "skip to the sauce"): call move_step and read the new step's instruction.
+- Move steps only when asked, and ALWAYS by calling move_step first: "next" = action next; "go back" = back; "repeat" = repeat; "skip to the sauce" / "go to shaping" = goto with the step number from the outline. Then say "Step N." and read the Instruction from the tool result, and stop: no description of the picture, no "next is ...".
 - When a step has a stated duration, offer a timer once; set it with set_timer using that duration and a short label.
-- "Where was I", "I'm back", or a new conversation: call get_session with no session_id and tell them the step they're on and any timer status.
+- "Where was I", "I'm back", or a new conversation: call get_session with no session_id and say, in one sentence, the step number and title and any timer's time left. Don't read the instruction again unless asked.
 - If no guide is loaded yet, call list_guides; if one exists, start_session with it.
-- You can see the images tools return; use them when the person asks how something looks."""
+- You can see the images tools return; only describe them when the person asks how something looks or whether theirs is right.
+- When asked to set a timer for a step ("the rest", "the boil"), use that step's stated duration from the session (wait_s); if you're not on that step, use the step from the outline."""
 
 
 class UiEvents(HookProvider):
@@ -85,7 +92,7 @@ def make_model():
         return OpenAIModel(
             client_args={"api_key": os.environ["OPENAI_API_KEY"]},
             model_id=os.environ.get("SECOND_LOOK_MODEL", "gpt-4.1-mini"),
-            params={"temperature": 0.3},
+            params={"temperature": 0.2},
         )
     from strands.models.gemini import GeminiModel
 
@@ -122,10 +129,57 @@ class Brain:
                 self._agents[convo_id] = (agent, ui)
             return self._agents[convo_id]
 
+    def screen_context(self) -> str:
+        """What the screen shows right now, so the model always knows the session and the step numbers."""
+        try:
+            snap = self.call("get_session", {})
+        except Exception:  # noqa: BLE001
+            snap = {}
+        if not snap.get("session_id"):
+            return "(Screen: no cooking session yet. Use list_guides / start_session.)"
+        st = snap["step"]
+        timers = "; ".join(f"{t['label']} {t['status']} {t['remaining_s']}s left" for t in snap.get("timers", [])) or "none"
+        return (
+            f"(Screen right now, from the crv-guide server: session_id={snap['session_id']}, "
+            f"'{snap['guide_title']}', on step {st['step_number']} of {st['total_steps']}: {st['title']} "
+            f"(stated duration {st.get('wait_s') or 'none'} s). Timers: {timers}. "
+            f"Outline: {' | '.join(snap.get('outline', []))})"
+        )
+
+    NAV = {
+        "next": re.compile(r"^(ok(ay)?[, ]*)?(next|next step|go on|continue|what'?s next|done[, ]*next)[.!?]*$", re.I),
+        "back": re.compile(r"^(go back|back|previous( step)?|last step)[.!?]*$", re.I),
+        "repeat": re.compile(r"^(repeat( that| the step)?|say (that|it) again|again)[.!?]*$", re.I),
+        "resume": re.compile(r"^((ok(ay)?|hi|hey)[, ]*)?(i'?m back[.!,]*\s*)?(where was i|where am i|where were we)[.!?]*$|^i'?m back[.!?]*$", re.I),
+    }
+
+    def fast_path(self, text: str) -> dict[str, Any] | None:
+        """Plain step navigation is routed straight to the MCP server, the way a voice platform maps simple intents."""
+        t = text.strip()
+        action = next((a for a, rx in self.NAV.items() if rx.match(t)), None)
+        if not action:
+            return None
+        snap = self.call("get_session", {})
+        if not snap.get("session_id"):
+            return None
+        if action == "resume":
+            return {"reply": snap.get("speak", ""), "events": [{"type": "tool", "tool": "get_session", "input": {}, "status": "success", "data": snap, "text": "", "images": 1}], "route": "intent"}
+        args = {"session_id": snap["session_id"], "action": action, "expected_revision": snap["revision"]}
+        r = self.mcp.call_tool_sync(tool_use_id="nav", name="move_step", arguments=args)
+        data = r.get("structuredContent") or {}
+        st = data.get("step") or {}
+        if not st:
+            return None
+        reply = data.get("speak") or f"Step {st['step_number']}. {st['say']}"
+        return {"reply": reply, "events": [{"type": "tool", "tool": "move_step", "input": args, "status": "success", "data": data, "text": "", "images": 1}], "route": "intent"}
+
     def turn(self, convo_id: str, text: str) -> dict[str, Any]:
+        fast = self.fast_path(text)
+        if fast:
+            return fast
         agent, ui = self._agent(convo_id)
         ui.events = []
-        result = agent(text)
+        result = agent(f"{self.screen_context()}\nThe person says: {text}")
         reply = str(result).strip()
         return {"reply": reply, "events": list(ui.events)}
 

@@ -242,3 +242,9 @@ def timers_for(session_id: str) -> list[dict[str, Any]]:
             }
         )
     return out
+
+
+def fail_stale_jobs() -> None:
+    """Jobs that were running when the server stopped will never finish; say so."""
+    with connect() as con:
+        con.execute("update jobs set status='failed', stage='failed', error='server restarted during import; import again' where status='processing'")

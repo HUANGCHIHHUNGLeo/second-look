@@ -76,10 +76,18 @@ function render(s) {
   $("stepLook").textContent = st.look_for;
   const seen = $("stepSeen");
   seen.hidden = !st.visual_note;
-  seen.querySelector("span").textContent = st.visual_note || "";
+  seen.querySelector("span:last-child").textContent = st.visual_note || "";
   if ($("frameImg").src !== st.frame_url) $("frameImg").src = st.frame_url;
   $("frameTime").textContent = `from the video at ${st.frame_time}`;
   $("replayBtn").onclick = () => playClip(st.clip.video_url, st.clip.start_s, st.clip.end_s, `${st.title} · video ${st.video_time}`);
+  const prog = $("progress");
+  prog.innerHTML = "";
+  for (let i = 1; i <= st.total_steps; i++) {
+    const d = document.createElement("i");
+    if ((s.completed_steps || []).includes(i)) d.className = "done";
+    if (i === st.step_number) d.className = "now";
+    prog.appendChild(d);
+  }
   $("nextBox").hidden = !s.next_step_title;
   $("nextTitle").textContent = s.next_step_title || "";
   for (const b of ["backBtn", "repeatBtn", "nextBtn"]) $(b).disabled = false;
@@ -136,9 +144,11 @@ function showEvidence(data) {
     el.className = "ev";
     el.innerHTML = `<img alt=""><div><div class="t"></div><div class="q"></div></div>`;
     el.querySelector("img").src = e.frame_url;
-    el.querySelector(".t").textContent = `video ${e.video_time}`;
-    el.querySelector(".q").textContent = e.text;
-    el.onclick = () => snap && playClip(snap.step.clip.video_url, e.start_s, e.start_s + 12, `video ${e.video_time}`);
+    const when = e.said_at ? `said at ${e.said_at}` : `video ${e.video_time}`;
+    el.querySelector(".t").textContent = e.step_number ? `step ${e.step_number} · ${when}` : when;
+    el.querySelector(".q").textContent = e.quote && !e.step_number ? `“${e.quote}”` : e.text;
+    const c = e.clip || { start_s: e.start_s, end_s: e.start_s + 12 };
+    el.onclick = () => snap && playClip(snap.step.clip.video_url, c.start_s, c.end_s, `From the video at ${e.said_at || e.video_time}`);
     box.appendChild(el);
   }
 }
@@ -178,8 +188,9 @@ if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged 
 
 function setLight(state) { $("lightbar").className = "lightbar" + (state ? " " + state : ""); }
 
+const REC = new URLSearchParams(location.search).has("rec");
 function speak(text) {
-  if (!("speechSynthesis" in window) || !text) return Promise.resolve();
+  if (REC || !("speechSynthesis" in window) || !text) return Promise.resolve();
   stopListening();
   speechSynthesis.cancel();
   return new Promise((resolve) => {
@@ -290,7 +301,7 @@ async function importAndStart(source) {
   imp.textContent = `Ready: ${g.title} (${g.steps.length} steps).`;
   const s = await mcp.call("start_session", { guide_id: g.guide_id });
   render(s.structuredContent);
-  $("alexaSaid").textContent = `I watched “${g.title}”. Step one: ${s.structuredContent.step.say}`;
+  $("alexaSaid").textContent = `I watched the video and split it into ${g.steps.length} steps. Say next when you're ready.`;
   speak($("alexaSaid").textContent);
 }
 $("loadSample").onclick = () => importAndStart("sample:pasta");
@@ -349,3 +360,22 @@ $("traceClose").onclick = () => { $("trace").hidden = true; clearInterval(traceT
     $("alexaSaid").textContent = `Welcome back. You're on step ${r.structuredContent.step.step_number}: ${r.structuredContent.step.title}.`;
   }
 })();
+
+// ---------------------------------------------------------------- demo recording hooks
+// Used only by the demo-video script: plays a spoken request through the same path as the
+// microphone (listening light, live transcript, then ask()), and logs timings for the soundtrack.
+window.__log = [];
+const _logEvt = (type, text) => window.__log.push({ type, text, t: Date.now() });
+window.__say = async (text, ms = 1600) => {
+  _logEvt("user", text);
+  setLight("listen"); $("micBtn").classList.add("on");
+  $("evidence").innerHTML = "";
+  const words = text.split(" ");
+  for (let i = 1; i <= words.length; i++) {
+    $("youSaid").textContent = words.slice(0, i).join(" ");
+    await new Promise((r) => setTimeout(r, ms / words.length));
+  }
+  $("micBtn").classList.remove("on"); setLight("");
+  await ask(text);
+  _logEvt("reply", $("alexaSaid").textContent);
+};

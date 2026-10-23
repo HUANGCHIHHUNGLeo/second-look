@@ -36,6 +36,8 @@ Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · 
                  └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+Plain navigation ("next", "go back", "repeat", "I'm back, where was I?") is routed straight to `move_step` / `get_session`, the way a voice platform maps simple intents, so it answers instantly and can't be misread by a model. Everything open-ended ("how much water?", "skip to the shaping", "show me the thumb move") goes to the Strands agent, which always gets the screen's current session and step outline with the request. Session tools also return a short voice-ready line (`speak`, like a skill's output speech), so Alexa says one or two sentences while the screen shows the full card.
+
 Two different MCP clients talk to the same server and share its state: the **Strands agent** (conversation) and the **screen** (renders cards, handles the Back / Repeat / Next buttons). The **MCP trace** button on the screen shows every JSON-RPC message live: `initialize` requesting protocol `2025-11-25`, the negotiated version, `tools/call` with its arguments.
 
 Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so, as the hackathon FAQ describes, the device is simulated by a web page that acts as a real MCP client. The server itself is a standard MCP server any MCP client can use.
@@ -50,8 +52,8 @@ Alexa+ developer tools (MCP Toolkit, Web Simulator) are select-partners only, so
 | `start_session(guide_id)` | Start cooking at step 1. Returns the step card + the step's video frame (image). |
 | `get_session(session_id?)` | "Where was I?" Resumes the latest unfinished session, with live timer time-left. |
 | `move_step(session_id, next/back/repeat/goto)` | Moves only when asked; `expected_revision` guards against double moves from two screens. |
-| `ask_source(question)` | BM25 search over what was *said* (timestamped transcript windows) and what each step *shows*; returns passages + matching frames as images. The assistant answers only from these. |
-| `show_moment(step_number? \| at_seconds?)` | The exact frame (grabbed from the source video at that second) + a replayable clip range. |
+| `ask_source(question)` | BM25 search over what was *said* (timestamped transcript windows) and what each step *shows*; each passage is pinned to the one transcript line that answers the question (`said_at`, e.g. 1:24, with a replay clip), plus matching frames as images. The assistant answers only from these. |
+| `show_moment(query? \| at_seconds? \| step_number?)` | The exact frame (grabbed from the source video at that second) + a replayable clip range. `query` finds the moment from a description ("pressing the thumb into the dough"). |
 | `set_timer(seconds, label, request_id?)` / `cancel_timer` | Timers stored as absolute deadlines; idempotent with `request_id`. |
 
 Every step in a guide keeps its evidence: the frame number it was written from, its time range, the transcript lines behind each quantity, and a `visual_note` for something visible in the frames that the narration never says. The guide is validated against the real video before it is stored (frame numbers must exist and fall inside the step, times are clamped, line numbers must exist), so it can only cite things that are in the video.
@@ -71,6 +73,8 @@ cp .env.example .env                                       # add OPENAI_API_KEY 
 ```
 
 Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (needs `GEMINI_API_KEY` for the guide step; a 2–3 minute video takes about a minute to watch, plus the model's time).
+
+Tests: `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation against the video, evidence search, sessions, revision checks, idempotent timers).
 
 Use the server from any MCP client: `.venv/bin/crv-guide-mcp --port 8765`, then connect to `http://127.0.0.1:8765/mcp` (Streamable HTTP). Smoke test with a real MCP client: `.venv/bin/python server/tests/smoke_client.py`.
 

@@ -54,6 +54,23 @@ def test_evidence_finds_water_quantity():
     assert "water" in text and ("three-quarters" in text or "three quarters" in text)
 
 
+
+def test_answer_is_pinned_to_the_line_that_says_it():
+    from crv_guide_mcp import evidence, extract
+    w = extract.load(FIX)
+    g = json.loads((FIX / "guide.json").read_text())
+    step2 = g["steps"][1]
+    line = evidence.best_line(w.segments, step2["evidence"], "How much water did she use?")
+    assert "three quarters of a cup" in line.text and extract.clock(line.start) == "1:24"
+    thumb = evidence.best_line(w.segments, [57, 58, 59], "how she makes the shape with her thumb")
+    assert "thumb" in thumb.text                            # the rarer word wins over "shape"
+    long_q = "pressing thumb into dough ball and dragging back to create orecchiette shape"
+    assert "thumb" in evidence.best_line(w.segments, [56, 57, 58, 59], long_q).text
+    topic = frozenset(evidence.tokens(g["title"]))          # the dish name points at no particular moment
+    q = "pressing the thumb into the dough to shape orecchiette"
+    assert "thumb" in evidence.best_line(w.segments, [56, 57, 58, 59], q, ignore=topic).text
+    assert evidence.best_line(w.segments, step2["evidence"], "oven temperature") is None
+
 def test_sessions_survive_and_timers_count_down():
     from crv_guide_mcp import store
     gid = store.save_guide("sample:pasta", "sample:pasta", str(FIX), json.loads((FIX / "guide.json").read_text()))

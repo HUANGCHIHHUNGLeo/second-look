@@ -20,7 +20,7 @@ STOP = set(
     these those i you he she we they me my your our their do does did doing have has had what which who whom how
     when where why can could should would will just about into out up down over again very too as not no yes than
     there here all any each some such only own same few more most other let lets get got going gonna want wanna
-    okay ok kind like really little bit thing things now well""".split()
+    okay ok kind like really little bit thing things now well much many use used using did make""".split()
 )
 
 # A few cooking words automatic transcripts commonly mis-hear.
@@ -30,7 +30,10 @@ ALIASES = {"orecchiette": ["orcetti", "orchetti"], "silpat": ["siltat"]}
 def _stem(w: str) -> str:
     for suf in ("ing", "ed", "es", "s"):
         if len(w) > 4 and w.endswith(suf):
-            return w[: -len(suf)]
+            w = w[: -len(suf)]
+            if suf in ("ing", "ed") and len(w) > 3 and w[-1] == w[-2] and w[-1] not in "lsz":
+                w = w[:-1]  # dragging -> drag, stopped -> stop
+            return w
     return w
 
 
@@ -74,8 +77,43 @@ def build_passages(watched: Watched, guide: dict) -> list[Passage]:
     return passages
 
 
+QUANTITY = re.compile(
+    r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten|half|quarters?|cups?|teaspoons?|tablespoons?|"
+    r"minutes?|hours?|seconds?|degrees?|grams?|ounces?|inch(es)?|pinch|handful)\b",
+    re.I,
+)
+ASKS_QUANTITY = re.compile(r"\bhow (much|many|long|big|thick|thin|hot)\b|temperature|amount|quantity|how much time", re.I)
+
+
+def best_line(segments: list, line_ids: list[int], question: str, ignore: frozenset[str] = frozenset()):
+    """The one transcript line among `line_ids` that answers the question, so an answer can say
+    "she says it at 1:24" instead of quoting a whole step's time range. None if no line matches.
+    `ignore`: words that name the whole video (its title), which point at no particular moment."""
+    q = set(tokens(question)) - ignore
+    wants_amount = bool(ASKS_QUANTITY.search(question))
+    n = len(segments) or 1
+    df: Counter[str] = Counter(t for seg in segments for t in set(tokens(seg.text)))
+    def overlap(i: int) -> float:
+        if not 0 <= i < len(segments):
+            return 0.0
+        return sum(math.log(1 + n / df[t]) for t in q & set(tokens(segments[i].text)))
+
+    best, best_s = None, 0.0
+    for i in line_ids:
+        if not 0 <= i < len(segments):
+            continue
+        s = overlap(i)
+        if wants_amount and (s or overlap(i - 1) or overlap(i + 1)):
+            # "how much water": the amount is often in the line right after the one naming the thing
+            s += 3.0 * min(2, len(QUANTITY.findall(segments[i].text)))
+        if s > best_s:
+            best, best_s = segments[i], s
+    return best
+
+
 def search(passages: list[Passage], question: str, k: int = 4) -> list[tuple[float, Passage]]:
     q = tokens(question)
+    wants_amount = bool(ASKS_QUANTITY.search(question))
     if not q or not passages:
         return []
     n = len(passages)
@@ -96,7 +134,11 @@ def search(passages: list[Passage], question: str, k: int = 4) -> list[tuple[flo
             s += idf * tf[t] * (k1 + 1) / (tf[t] + k1 * (1 - b + b * len(p.toks) / avgdl))
         if s > 0:
             # steps were written from the frames with mis-heard words corrected, so they rank slightly higher
-            scored.append((s * (1.25 if p.kind == "step" else 1.0), p))
+            boost = 1.25 if p.kind == "step" else 1.0
+            if wants_amount:
+                # "how much / how long" questions: prefer passages that actually state an amount
+                boost *= 1 + 0.6 * min(3, len(QUANTITY.findall(p.text)))
+            scored.append((s * boost, p))
     scored.sort(key=lambda x: -x[0])
     # drop near-duplicate transcript windows that overlap a better one
     picked: list[tuple[float, Passage]] = []
