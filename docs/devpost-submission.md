@@ -13,7 +13,7 @@ Alexa+ follows a cooking video with you, hands-free, because it actually watched
 ## About the project
 
 ### Inspiration
-Cooking from a video is one of the most common things people do with a screen in the kitchen, and one of the most frustrating. Your hands are covered in dough, the video keeps going, a quantity is said once and gone, and you never know whether yours looks right. Recipe apps turn the captions into text. But the most useful part of a cooking video is what you can *see*: how thick, how shiny, how the thumb drags. We wanted Alexa+ to be able to look at the video for you.
+Learning a dish from a video is common, and frustrating in the kitchen. Your hands are covered in dough, the video keeps going, a quantity is said once and gone, and you never know whether yours looks right. Recipe tools can turn a video's captions into text. But the most useful part of a cooking video is what you can *see*: how thick, how shiny, how the thumb drags. We wanted Alexa+ to be able to look at the video for you.
 
 ### What it does
 Second Look gives Alexa+ a video it has actually watched:
@@ -22,7 +22,7 @@ Second Look gives Alexa+ a video it has actually watched:
 - **Ask the video.** "How much water did she use?" The answer comes from what was said, pinned to the exact line ("about three quarters of a cup of cold water to start; she says it at 1:24"), and the evidence cards are on screen. Tap one to replay exactly that moment.
 - **"Show me what it should look like."** The exact frame from the video for that step, described, including details the narrator never says.
 - **Timers from the video.** The 30-minute rest becomes a real timer, stored as a deadline.
-- **Resume anywhere.** Close the browser, restart the server, come back tomorrow: "I'm back, where was I?" picks up at your step with the timer still counting.
+- **Resume anywhere.** Close the browser, restart the server, come back later: "I'm back, where was I?" picks up at your step, and the timer kept its deadline ("your dough rest timer has 29 minutes left").
 
 ### How we built it
 - **crv-guide MCP server** (Python, official MCP SDK 2.1, Streamable HTTP, protocol 2025-11-25): 10 tools (`import_video`, `get_import`, `list_guides`, `start_session`, `get_session`, `move_step`, `ask_source`, `show_moment`, `set_timer`, `cancel_timer`). Tool results return text, structured content and images (the video frames). SQLite keeps guides, sessions, step progress (with a revision check so two screens can't double-move) and absolute timer deadlines. The endpoint has DNS-rebinding protection and a CORS allow-list.
@@ -63,7 +63,10 @@ Second Look and its MCP server were built during the hackathon. It uses crv (cla
 Strands Agents SDK (strands-agents 1.62.0) runs the conversation in `second_look/agent.py`: `strands.tools.mcp.MCPClient(url=...)` connects to the MCP server over Streamable HTTP and loads its tools; `strands.Agent` runs the tool loop with a `SlidingWindowConversationManager`; an `AfterToolCallEvent` hook forwards tool results to the screen. Models are called through Strands' OpenAI and Gemini providers; the agent loop runs locally and no AWS-hosted service is used.
 
 ## Open Source
-(Filled in at submission: contribution URL, repo URL, GitHub username, description.)
+- Contribution URL: https://github.com/HUANGCHIHHUNGLeo/claude-real-video/pull/31
+- Project repository URL: https://github.com/HUANGCHIHHUNGLeo/claude-real-video
+- GitHub username: HUANGCHIHHUNGLeo
+- What, how, why: While building Second Look we found that a fresh install of crv (claude-real-video, the open-source video reader Second Look uses to watch videos) could no longer transcribe: pip now resolves PyAV 19, and faster-whisper still passes `metadata_errors` to `av.open()`, which PyAV 16 removed. Both transcription and the voice-activity pre-check failed, so crv quietly produced no transcript, and anything built on it (like a cooking guide) had nothing to work from. The pull request pins `av<16` in the `fast` and `mlx` extras until faster-whisper is updated; we reproduced the failure with av 19.0.2 and confirmed the same 11-minute video transcribes with av 15.1.0. Second Look also ships the code it adds: the crv-guide MCP server is reusable by any MCP client (MIT).
 
 ## Product feedback (required)
 See docs/product-feedback.md.
