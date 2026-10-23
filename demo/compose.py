@@ -20,7 +20,7 @@ OUT = Path(os.environ.get("DEMO_OUT", "/tmp/sl-demo2"))
 WORK = OUT / "work"
 WORK.mkdir(parents=True, exist_ok=True)
 CARDS = Path(__file__).parent / "cards"
-SOURCE = ROOT / "server/fixtures/pasta/source.mp4"
+SOURCE = next((p for p in sorted((ROOT / "server/fixtures/pasta").glob("source.*"))), ROOT / "server/fixtures/pasta/source.mp4")
 FPS = 30
 CAPTION = "Alexa+ experience simulation  ·  requests typed for this recording, voices synthesized  ·  waits for the model are cut"
 
@@ -266,7 +266,7 @@ def main() -> None:
         card("fresh", "fresh", 2.4, 0.3),
         segment("seg3", s3, lead=0.6, extra_audio=[(t_start + 0.2, na, 1.0), (tail["at"] + 0.3, ta, 1.0)],
                 banners=[(t_start - 0.5, t_done + 0.3, banner)], source=new_video_source()),
-        card("end", "end", 4.2, 1.0),
+        card("end", "end", 6.5, 1.0),
     ]
     lst = WORK / "list.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in pieces))

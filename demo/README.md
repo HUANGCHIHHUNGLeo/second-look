@@ -6,10 +6,10 @@
 - `compose.py` cuts the time spent waiting for the model, plays the dialogue faster (`DEMO_SPEED`), places every voice on its real timestamp, and adds the title cards and narration (`cards/`, rendered by `render_cards.py`).
 
 ```sh
-export OPENAI_API_KEY=... GEMINI_API_KEY=...   # voices and word timings; the app itself uses .env
+export OPENAI_API_KEY=... GEMINI_API_KEY=...   # record.py starts the app with this environment (only run.sh reads .env)
 DEMO_OUT=/tmp/sl-demo .venv/bin/python demo/record.py
 DEMO_OUT=/tmp/sl-demo DEMO_AUDIO_G=/tmp/sl-demo-g .venv/bin/python demo/revoice.py
 DEMO_OUT=/tmp/sl-demo DEMO_AUDIO=/tmp/sl-demo-g DEMO_TTS_LOCKED=1 .venv/bin/python demo/compose.py   # -> /tmp/sl-demo/second-look-demo.mp4
 ```
 
-Needs ffmpeg, Playwright's Chromium (`.venv/bin/playwright install chromium`) and the sample video (`server/scripts/fetch_sample.sh`).
+Needs ffmpeg, the test extra and Playwright's Chromium (`.venv/bin/pip install -e '.[test]' && .venv/bin/playwright install chromium`) and the sample video (`server/scripts/fetch_sample.sh`). The voices in the published demo came from `gemini-3.8-flash-lite-tts` (`GEMINI_TTS_MODEL`), after the free daily quota of `gemini-3.8-flash-tts` ran out.

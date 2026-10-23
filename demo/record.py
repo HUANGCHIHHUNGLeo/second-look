@@ -209,7 +209,7 @@ def seg3(page, seg, t0):
     alexa_line(page, seg, t0)
     hands_free_on(page, seg, t0)
     say(page, seg, t0, "Alexa, how long does she cook each side?")
-    replay_card(page, seg, t0, "seven", 7.0)
+    replay_card(page, seg, t0, "seven", 10.5)  # long enough to hear "I cooked it for seven minutes on each side"
     page.click("#traceBtn")
     mark(seg, t0, "tail")
     time.sleep(1.5)
@@ -232,19 +232,21 @@ def main():
     fresh(DATA_NEW)
     for line in USER_LINES:  # synthesize the cook's lines up front so pacing is not hostage to TTS latency
         tts("user", line)
+    only_new = os.environ.get("DEMO_ONLY") == "seg3"  # re-record just the new-video segment
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        start_stack()
-        try:
-            record_segment(browser, "seg1", seg1)
-        finally:
-            stop_stack()
-        mark("gap", time.time(), "restart")
-        start_stack()
-        try:
-            record_segment(browser, "seg2", seg2)
-        finally:
-            stop_stack()
+        if not only_new:
+            start_stack()
+            try:
+                record_segment(browser, "seg1", seg1)
+            finally:
+                stop_stack()
+            mark("gap", time.time(), "restart")
+            start_stack()
+            try:
+                record_segment(browser, "seg2", seg2)
+            finally:
+                stop_stack()
         DATA = DATA_NEW  # a fresh install: nothing watched yet
         start_stack()
         try:

@@ -176,7 +176,7 @@ def main() -> None:
     # 1. the conversation, one request per segment
     speed = float(os.environ.get("DEMO_SPEED", "1.2"))
     rows = []
-    for seg in ("seg1", "seg2", "seg3"):
+    for seg in os.environ.get("REVOICE_SEGS", "seg1,seg2,seg3").split(","):
         events = [e for e in timeline if e["seg"] == seg]
         said = [e for e in events if e["kind"] in ("user", "alexa")]
         clips = split(gemini([(e["kind"], e["text"]) for e in said]), [e["text"] for e in said], f"{seg}-dialogue")

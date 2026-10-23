@@ -18,6 +18,13 @@ Everything below is what we actually ran into while building this project, with 
 - **Onboarding:** about 20 minutes from install to a tool call over Streamable HTTP. The built-in MCP Apps extension (`MCPServer(extensions=[Apps()])`, `add_html_resource`) made serving the `ui://` view a few lines.
 - **Would we build with it again:** yes.
 
+## MCP Apps (`io.modelcontextprotocol/ui`, spec 2026-01-26)
+- **Used for:** the add-on screen: the server registers `ui://second-look/cook.html` (`text/html;profile=mcp-app`, CSP in `_meta.ui`), the session tools point at it with `_meta.ui.resourceUri`, and our simulated host mounts it in a sandboxed iframe and talks to it over postMessage (`ui/initialize`, tool-input, tool-result, `tools/call`).
+- **What worked well:** the screen travels with the server instead of living in each client, and the same tool results drive both the voice reply and the view.
+- **What needs work:** we could only test the view in our own host; a reference host or test harness would help catch differences between hosts. Autoplay inside an opaque-origin iframe needs the host's `allow="autoplay"`, which is easy to miss.
+- **Onboarding:** the spec plus Amazon's Layout and Rendering page were enough to build the view within the hackathon evening; the SDK's Apps extension made the server side a few lines.
+- **Would we build with it again:** yes; it is how an Alexa+ add-on ships its screen.
+
 ## Strands Agents SDK (`strands-agents` 1.62.0) — AWS Builder
 - **Used for:** the conversational agent: `MCPClient(url=...)` over Streamable HTTP, `Agent` with an `AfterToolCallEvent` hook, `SlidingWindowConversationManager`, OpenAI and Gemini model providers.
 - **What worked well:** `MCPClient(url=...)` plus `list_tools_sync()` gave a working tool-calling agent against our server in minutes; the hook system made it easy to mirror every tool result onto the screen.
@@ -25,26 +32,37 @@ Everything below is what we actually ran into while building this project, with 
   - Strands pins `mcp<2.2`, while the current MCP SDK is 2.3, so one environment can't use the newest SDK.
   - Strands' MCP client negotiated the newest protocol (2026-07-28) with our server, while Alexa+ integrations target 2025-11-25. We didn't find an option to pin the protocol version on `MCPClient`. Our server supports both, so it worked, but a pin would help test Alexa+ compatibility.
   - With the OpenAI provider, every image in a tool result logs "Moving image from tool message to a new user message for OpenAI compatibility" on every turn, once per image in history; the log noise grows with the conversation.
+- **Onboarding:** minutes from `MCPClient(url=...)` to an agent calling our tools; the hooks documentation was the page we needed most.
 - **Feature requests:** (important) a `protocol_version` option on `MCPClient`; (nice-to-have) quieter image-relocation logging.
 - **Would we build with it again:** yes; it was the fastest path to a tool-calling agent against an MCP server.
 
 ## Gemini API (guide compiler, optional agent model, demo voices)
-- **Used for:** writing the step-by-step guide from ~90 keyframes + a transcript with a JSON response schema; the demo video's voices (`gemini-3.8-flash-tts`, two-speaker for the cook and Alexa).
+- **Used for:** writing the step-by-step guide from ~90 keyframes + a transcript with a JSON response schema; the demo video's voices (two-speaker for the cook and Alexa; `gemini-3.8-flash-lite-tts` after the free daily quota of `gemini-3.8-flash-tts` ran out).
 - **What worked well:** structured output with a Pydantic schema; good grounding when given frames and timestamped lines together. Text-to-speech sounds far more natural than what we used before, and one two-speaker request voices a whole exchange.
-- **What needs work:** on the deadline evening `gemini-flash-latest` and `gemini-3.7-flash` returned 503 "high demand" for long stretches; `gemini-pro-latest` returned 429 quota. We added retries and fallbacks across models and to OpenAI vision. `gemini-3.8-flash-tts` reads a style instruction placed in the text aloud, rejects `systemInstruction` ("Developer instruction is not enabled for this model"), wants `speechMetadata.speaker` on every part for two speakers, and returns no word timings, so we cut lines apart with Whisper.
+- **What needs work:** on the deadline evening `gemini-flash-latest` and `gemini-3.7-flash` returned 503 "high demand" for long stretches; `gemini-pro-latest` returned 429 quota. We added retries and fallbacks across models and to OpenAI vision. `gemini-3.8-flash-tts` reads a style instruction placed in the text aloud, rejects `systemInstruction` ("Developer instruction is not enabled for this model"), wants `speechMetadata.speaker` on every part for two speakers, and returns no word timings, so we cut lines apart with Whisper. On the free tier each TTS model allows 10 requests a day and failed (400) requests count too.
+- **Onboarding:** quick; structured output worked on the first try, and the TTS voices could be auditioned with a single request.
+- **Would we build with it again:** yes, for the guide compiler and for voices; with a paid tier for anything beyond a demo.
 
 ## OpenAI API
 - **Used for:** the agent's model through Strands (`gpt-4.1-mini`), the guide compiler fallback (`gpt-4.1` vision), and placeholder voices that pace the demo recording (`gpt-4o-mini-tts`).
 - **What worked well:** reliable tool calling and low latency (about 3–5 s per spoken turn including MCP calls).
 - **What needs work:** `gpt-4o-mini-tts` occasionally returned audio that stops mid-answer (a 32-word answer came back as 6.9 s and lost its last sentence, the timestamp). The demo script now checks words per second and re-synthesizes. `gpt-4.1-mini` also tends to read a whole step card aloud even when told to keep it to one sentence, so the MCP server now returns a short `speak` line and simple intents skip the model.
+- **Onboarding:** quick; the existing SDK worked as a Strands provider with one setting.
+- **Would we build with it again:** yes for the agent model and Whisper word timings; for voices we preferred Gemini.
 
 ## crv / claude-real-video 0.10.7 (our own open-source tool)
 - **Used for:** watching the video: scene-change keyframes, per-frame timestamps, Whisper transcript.
+- **What worked well:** one call turns a link into frames plus a timestamped transcript, which is exactly the evidence the guide and the answers point at.
+- **Onboarding:** we wrote it; the only snag on a fresh install was the PyAV issue below.
+- **Would we build with it again:** yes; it is the reason Second Look can cite a moment instead of a range.
 - **Friction we found in our own tool:** on a fresh install with PyAV 19, faster-whisper's audio loading fails (`open() got an unexpected keyword argument 'metadata_errors'`), so transcription silently fell back to "none". Pinning `av<16` fixes it; we pinned it in Second Look and sent the fix upstream (see Open Source).
 
 ## Web Speech API (Chrome)
-- **Used for:** voice input (SpeechRecognition) and Alexa's voice (speechSynthesis) on the simulated screen.
-- **What needs work:** recognition and synthesis fight each other unless you stop listening while speaking; we handle that explicitly.
+- **Used for:** voice input (SpeechRecognition, including the hands-free wake word) and Alexa's voice (speechSynthesis) on the simulated screen.
+- **What worked well:** zero setup in Chrome; continuous recognition with interim results made the wake word possible.
+- **What needs work:** recognition and synthesis fight each other unless you stop listening while speaking; we handle that explicitly. In practice recognition only works in Chrome.
+- **Onboarding:** minutes for push-to-talk; the hands-free loop (pausing while speaking and while a clip plays) took most of the effort.
+- **Would we build with it again:** for a simulation, yes; on a device, Alexa's own speech stack replaces it.
 
 ## Friction log
 

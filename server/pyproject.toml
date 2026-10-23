@@ -4,10 +4,11 @@ version = "0.1.0"
 description = "MCP server that watches a how-to video with crv and turns it into a stateful, evidence-backed step-by-step guide."
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dependencies = [
   "mcp>=2.1,<2.2",
-  "claude-real-video[mlx]==0.10.7",
+  "claude-real-video[mlx]==0.10.7; sys_platform == 'darwin' and platform_machine == 'arm64'",
+  "claude-real-video[fast]==0.10.7; sys_platform != 'darwin' or platform_machine != 'arm64'",
   "av<16",
   "google-genai>=1.68",
   "pillow>=10",
