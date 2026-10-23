@@ -87,7 +87,7 @@ const view = { frame: null, ready: false, queue: [] };
 const uiTools = new Set();
 
 async function mountView() {
-  if (view.frame) return;
+  if (view.frame) { view.frame.hidden = false; $("launcher").hidden = true; return; }  // back from "New video"
   const { tools } = await mcp.rpc("tools/list", {});
   const bound = tools.filter((t) => t._meta && t._meta.ui && t._meta.ui.resourceUri);
   bound.forEach((t) => uiTools.add(t.name));
@@ -448,6 +448,13 @@ async function importAndStart(source) {
   speak($("alexaSaid").textContent);
 }
 $("loadSample").onclick = () => importAndStart("sample:pasta");
+// Watch another video: the launcher comes back over the add-on; pressing again returns to the cooking session.
+$("newVideoBtn").onclick = () => {
+  if (!$("launcher").hidden && view.frame) { $("launcher").hidden = true; view.frame.hidden = false; return; }
+  $("launcher").hidden = false; $("importing").hidden = true;
+  if (view.frame) view.frame.hidden = true;
+  $("urlInput").focus();
+};
 $("urlForm").onsubmit = (e) => { e.preventDefault(); const u = $("urlInput").value.trim(); if (u) importAndStart(u); };
 
 // ---------------------------------------------------------------- MCP trace drawer
