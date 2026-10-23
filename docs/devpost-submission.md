@@ -12,6 +12,12 @@ Alexa+ follows a cooking video with you, hands-free, because it actually watched
 
 ## About the project
 
+### In 30 seconds
+- **What:** an Alexa+ add-on that follows a cooking video with you, hands-free, because it actually watched it. Every answer cites the moment it was said and can replay it; "What do I need?" shows the recipe with the time each amount is said.
+- **Why:** 51% of YouTube users say it is very important for figuring out how to do things they haven't done before ([Pew Research Center, 2018](https://www.pewresearch.org/internet/2018/11/07/many-turn-to-youtube-for-childrens-content-news-how-to-lessons/)). In a kitchen your hands are busy, so the video has to come to you.
+- **Built for the device:** voice first, readable from across the kitchen, a hands-free wake word, and the microphone closes while a clip plays.
+- **How:** a self-hosted MCP server (spec 2025-11-25, Streamable HTTP, 11 tools) that ships its screen as an MCP Apps view built on Amazon's Alexa+ add-on guide; an AWS Strands agent talks to it; numbers are checked against the narration.
+
 ### Inspiration
 Learning a dish from a video is common, and frustrating in the kitchen. Your hands are covered in dough, the video keeps going, a quantity is said once and gone, and you never know whether yours looks right. Recipe tools can turn a video's captions into text. But the most useful part of a cooking video is what you can *see*: how thick, how shiny, how the thumb drags. We wanted Alexa+ to be able to look at the video for you.
 
@@ -60,7 +66,7 @@ python, mcp, model-context-protocol, streamable-http, strands-agents, aws, gemin
 
 ## Try it out
 - Code: https://github.com/HUANGCHIHHUNGLeo/second-look
-- Demo video: https://youtu.be/wYeJ0JK-OPs
+- Demo video: https://youtu.be/5i-394l3xQk
 
 ## If your project existed before the hackathon
 Second Look and its MCP server were built during the hackathon. It uses crv (claude-real-video), an open-source video reader by the same author that existed before: crv extracts keyframes and a transcript and offered a local stdio MCP server. Everything else is new: the Streamable HTTP MCP server (spec 2025-11-25), the guide compiler and its validation, persistent sessions, step navigation, evidence search, exact-moment frames, timers, the simulated Alexa+ screen and the Strands agent. crv is used unchanged as a pinned library (0.10.7).
