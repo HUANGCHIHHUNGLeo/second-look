@@ -237,6 +237,29 @@ def segment(name: str, events: list[dict], lead: float, extra_audio: list[tuple[
     return out
 
 
+def cold_open(events: list[dict], lead: float) -> Path:
+    """The payoff first (the first seconds deliver what the title promises): the question over the answer
+    on screen, then the moment in the video that answers it. Cut from seg1, so build that first."""
+    iv = keep_intervals(events, dur(OUT / "seg1.webm"), lead)
+    q = next(e for e in events if e["kind"] == "user" and "water" in e["text"])
+    a = next(e for e in events if e["kind"] == "alexa" and e["at"] > q["at"])
+    c = next(e for e in events if e["kind"] == "clip" and e["at"] > q["at"])
+    src = WORK / "seg1.mp4"
+    qa, qd = fast_audio(q["audio"])
+    la, lb = max(2.2, qd + 0.45), 3.4  # the replay reaches "about three quarters of a cup" by 3.0 s
+    a0, b0 = remap(a.get("at_override", a["at"]), iv) + 0.5, remap(c["at"], iv)
+    enc = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
+    part_a, part_b, out = WORK / "cold-a.mp4", WORK / "cold-b.mp4", WORK / "cold.mp4"
+    run(["ffmpeg", "-y", "-ss", f"{a0:.3f}", "-t", f"{la:.3f}", "-i", str(src), "-i", str(qa), "-filter_complex",
+         f"[1:a]adelay=150|150,apad,atrim=0:{la:.3f}[aud]", "-map", "0:v", "-map", "[aud]", *enc, "-t", f"{la:.3f}", str(part_a)])
+    run(["ffmpeg", "-y", "-ss", f"{b0:.3f}", "-t", f"{lb:.3f}", "-i", str(src), "-vf", f"fade=t=out:st={lb - 0.3:.2f}:d=0.3",
+         "-af", f"afade=t=out:st={lb - 0.3:.2f}:d=0.3", *enc, str(part_b)])
+    lst = WORK / "cold.txt"
+    lst.write_text(f"file '{part_a}'\nfile '{part_b}'\n")
+    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), *enc, str(out)])
+    return out
+
+
 def main() -> None:
     tl = json.loads((OUT / "timeline.json").read_text())
     kinds = ("user", "alexa", "clip", "handsfree", "import_start", "stage", "import_done", "tail")
@@ -257,10 +280,12 @@ def main() -> None:
     ta, td = narr("trace")
     tail["dur"] = td + 0.6
     banner = f"First time watching this video: {took_s // 60} min {took_s % 60:02d} s in real time, sped up here"
+    p_intro, p_title, p_seg1 = intro(), card("title", "title", 3.5, 0.4), segment("seg1", s1, lead=1.4)
     pieces = [
-        intro(),
-        card("title", "title", 3.5, 0.4),
-        segment("seg1", s1, lead=1.4),
+        cold_open(s1, lead=1.4),
+        p_intro,
+        p_title,
+        p_seg1,
         card("restart", "restart", 3.2, 0.4),
         segment("seg2", s2, lead=0.6),
         card("fresh", "fresh", 2.4, 0.3),
