@@ -60,7 +60,7 @@ python, mcp, model-context-protocol, streamable-http, strands-agents, aws, gemin
 
 ## Try it out
 - Code: https://github.com/HUANGCHIHHUNGLeo/second-look
-- Demo video: https://youtu.be/r2tIoKnQlXc
+- Demo video: https://youtu.be/wYeJ0JK-OPs
 
 ## If your project existed before the hackathon
 Second Look and its MCP server were built during the hackathon. It uses crv (claude-real-video), an open-source video reader by the same author that existed before: crv extracts keyframes and a transcript and offered a local stdio MCP server. Everything else is new: the Streamable HTTP MCP server (spec 2025-11-25), the guide compiler and its validation, persistent sessions, step navigation, evidence search, exact-moment frames, timers, the simulated Alexa+ screen and the Strands agent. crv is used unchanged as a pinned library (0.10.7).

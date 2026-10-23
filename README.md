@@ -15,7 +15,7 @@ Cooking from a video is awkward when your hands are covered in flour: the video 
 
 Track: **Alexa+** (self-hosted MCP server, spec 2025-11-25, Streamable HTTP) · Mini challenges: **AWS Builder** (Strands Agents SDK), **Open Source**.
 
-> Demo video: https://youtu.be/r2tIoKnQlXc
+> Demo video: https://youtu.be/wYeJ0JK-OPs
 
 ![Second Look on a simulated Echo Show: "How much water did she use?" answered from the line she says at 1:24, with evidence cards to replay](docs/screen.png)
 
