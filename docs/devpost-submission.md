@@ -20,7 +20,7 @@ Second Look gives Alexa+ a video it has actually watched:
 - **Import any how-to video.** crv (our open-source video reader) extracts a keyframe at every scene change and a timestamped transcript. A multimodal model writes a step-by-step guide from frames and words together. Every step is pinned to a real frame, a time range and the transcript lines behind its quantities, plus a "visible but never said" note. The guide is validated against the video before it is stored, so it can only cite things that are actually in the video.
 - **Cook along by voice.** "Next." "Go back." "Repeat that." One step at a time, never skipping ahead on its own.
 - **Ask the video.** "How much water did she use?" The answer comes from what was said, pinned to the exact line ("about three quarters of a cup of cold water to start; she says it at 1:24"), and the evidence cards are on screen. Tap one to replay exactly that moment.
-- **"Show me what it should look like."** The exact frame from the video for that step, described, including details the narrator never says.
+- **"Show me how she does it."** The exact frame from the video for a technique described in words ("pressing the thumb into the dough") or for the current step, with a clip to replay, described including details the narrator never says.
 - **Timers from the video.** The 30-minute rest becomes a real timer, stored as a deadline.
 - **Resume anywhere.** Close the browser, restart the server, come back later: "I'm back, where was I?" picks up at your step, and the timer kept its deadline ("your dough rest timer has 29 minutes left").
 
@@ -28,7 +28,7 @@ Second Look gives Alexa+ a video it has actually watched:
 - **crv-guide MCP server** (Python, official MCP SDK 2.1, Streamable HTTP, protocol 2025-11-25): 10 tools (`import_video`, `get_import`, `list_guides`, `start_session`, `get_session`, `move_step`, `ask_source`, `show_moment`, `set_timer`, `cancel_timer`). Tool results return text, structured content and images (the video frames). SQLite keeps guides, sessions, step progress (with a revision check so two screens can't double-move) and absolute timer deadlines. The endpoint has DNS-rebinding protection and a CORS allow-list.
 - **Guide compiler**: crv's keyframes + transcript go to Gemini (OpenAI vision as fallback) with a strict JSON schema; the result is validated against the real video (frame numbers, time ranges, transcript line numbers).
 - **Evidence search**: BM25 over timestamped transcript windows and the frame-grounded steps, then each hit is pinned to the single transcript line that answers the question, so answers cite a moment (1:24), not a range; the assistant answers only from what comes back, and says so when the video doesn't cover something.
-- **Voice-ready replies**: session tools return a short `speak` line (like a skill's output speech) next to the full card, so Alexa says one or two sentences while the screen carries the detail.
+- **Voice-ready replies**: session tools return a short `speak` line (like a skill's output speech) next to the full card, so Alexa says one or two sentences while the screen carries the detail. Simple intents (next, back, repeat, "where was I") go straight to the MCP tools without a model call.
 - **Simulated Alexa+ screen** (Echo Show style web app): Web Speech API voice in/out, step cards with the video frame, evidence cards, clip replay, timer chips, and a live MCP trace. The page itself is an MCP client (initialize with protocol 2025-11-25, tools/call), handling the on-screen buttons and state.
 - **Conversation**: an AWS **Strands Agents** agent with `MCPClient` over Streamable HTTP and an `AfterToolCallEvent` hook that sends every tool result to the screen as a card (model provider: OpenAI gpt-4.1-mini or Gemini through Strands).
 
@@ -39,7 +39,7 @@ Second Look gives Alexa+ a video it has actually watched:
 - Model availability on deadline night (Gemini returned 503 "high demand" for several models), so the guide compiler retries and falls back across models and providers.
 
 ### Accomplishments that we're proud of
-- "What should it look like?" answered with the actual frame from the video, including details the narration never says.
+- "Show me how she makes the shape with her thumb" answered with the exact frame and clip from the video, including details the narration never says.
 - True persistence: the demo closes the browser and restarts the server, and Alexa still knows your step and your timer.
 - Two different MCP clients (the Strands agent and the screen) sharing one server's state, visible live in the MCP trace.
 
