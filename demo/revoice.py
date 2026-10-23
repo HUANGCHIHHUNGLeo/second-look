@@ -198,7 +198,9 @@ def main() -> None:
     took_s = int(round(t_done - t_start))
     took = f"{took_s // 60} minutes {took_s % 60} seconds" if took_s >= 60 else f"{took_s} seconds"
     texts = [NARR[k].format(took=took) for k in NARR]
-    clips = split(gemini([("narrator", t) for t in texts], single_voice=VOICES["narrator"]), texts, "narration")
+    if all((AUDIO / f"narrator-{hashlib.sha1(f'narrator|{t}'.encode()).hexdigest()[:16]}.mp3").exists() for t in texts):
+        texts = []  # the narration for these exact texts was made earlier
+    clips = split(gemini([("narrator", t) for t in texts], single_voice=VOICES["narrator"]), texts, "narration") if texts else []
     for text, clip in zip(texts, clips):
         key = hashlib.sha1(f"narrator|{text}".encode()).hexdigest()[:16]
         wav = AUDIO / f"narrator-{key}.wav"

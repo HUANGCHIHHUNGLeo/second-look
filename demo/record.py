@@ -102,6 +102,7 @@ def record_segment(browser, name, actions):
 
 
 USER_LINES = [
+    "Alexa, what do I need for this?",
     "Alexa, how much water did she use?",
     "Alexa, how much sugar does she add?",
     "Alexa, skip to the resting step.",
@@ -162,6 +163,8 @@ def seg1(page, seg, t0):
     time.sleep(0.3)
     alexa_line(page, seg, t0)
     hands_free_on(page, seg, t0)
+    say(page, seg, t0, "Alexa, what do I need for this?")  # the recipe card: amounts said in the video carry their time
+    time.sleep(1.0)
     say(page, seg, t0, "Alexa, how much water did she use?")
     replay_card(page, seg, t0, "quarter", 7.5)
     say(page, seg, t0, "Alexa, how much sugar does she add?")
@@ -232,10 +235,10 @@ def main():
     fresh(DATA_NEW)
     for line in USER_LINES:  # synthesize the cook's lines up front so pacing is not hostage to TTS latency
         tts("user", line)
-    only_new = os.environ.get("DEMO_ONLY") == "seg3"  # re-record just the new-video segment
+    only = os.environ.get("DEMO_ONLY", "")  # "seg3" or "seg12": re-record part of the demo
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        if not only_new:
+        if only != "seg3":
             start_stack()
             try:
                 record_segment(browser, "seg1", seg1)
@@ -247,14 +250,15 @@ def main():
                 record_segment(browser, "seg2", seg2)
             finally:
                 stop_stack()
-        DATA = DATA_NEW  # a fresh install: nothing watched yet
-        start_stack()
-        try:
-            record_segment(browser, "seg3", seg3)
-            import urllib.request  # keep the MCP traffic of the take, to check which tools the agent called
-            (OUT / "trace-seg3.json").write_bytes(urllib.request.urlopen("http://127.0.0.1:8765/trace", timeout=5).read())
-        finally:
-            stop_stack()
+        if only != "seg12":
+            DATA = DATA_NEW  # an empty library: nothing watched yet
+            start_stack()
+            try:
+                record_segment(browser, "seg3", seg3)
+                import urllib.request  # keep the MCP traffic of the take, to check which tools the agent called
+                (OUT / "trace-seg3.json").write_bytes(urllib.request.urlopen("http://127.0.0.1:8765/trace", timeout=5).read())
+            finally:
+                stop_stack()
         browser.close()
     (OUT / "timeline.json").write_text(json.dumps(timeline, indent=1))
     print(json.dumps(timeline, indent=1)[:4000])
