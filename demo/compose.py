@@ -144,7 +144,7 @@ def intro() -> Path:
     return out
 
 
-SPEED = 1.2  # dialogue is played 20% faster; pauses for the model are cut anyway
+SPEED = float(os.environ.get("DEMO_SPEED", "1.2"))  # dialogue is played faster; pauses for the model are cut anyway
 
 
 def fast_audio(path: str, speed: float | None = None) -> tuple[Path, float]:
@@ -161,9 +161,9 @@ def keep_intervals(events: list[dict], seg_len: float, lead: float) -> list[list
     for e in events:
         at = e.get("at_override", e["at"])
         if e["kind"] == "user":
-            iv.append([at - 0.15, at + e["dur"] / SPEED + 0.4])
+            iv.append([at - 0.1, at + e["dur"] / SPEED + 0.25])
         elif e["kind"] == "alexa":
-            iv.append([at - 0.45, at + e["dur"] / SPEED + 0.3])
+            iv.append([at - 0.3, at + e["dur"] / SPEED + 0.2])
         elif e["kind"] == "clip":
             iv.append([at - 0.4, at + e["dur"] + 0.2])
         elif e["kind"] == "tail":

@@ -55,6 +55,9 @@ button:active { transform: translateY(1px); }
 .said { min-width: 0; display: grid; gap: 4px; }
 .you { font-size: 17px; color: var(--ink3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 22px; }
 .alexa { font-size: 24px; line-height: 1.3; font-weight: 600; color: var(--ink); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.who { display: inline-block; margin-right: 10px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink3); vertical-align: 3px; }
+.alexa .who { color: var(--accent); }
+.you:has(#youSaid:empty) .who { visibility: hidden; }
 .voice-controls { display: flex; align-items: center; gap: 14px; }
 .hf { display: inline-flex; align-items: center; gap: 8px; font-family: inherit; font-size: 16px; font-weight: 700; color: var(--ink2); background: var(--btn); border: 0; border-radius: 9999px; padding: 11px 16px; cursor: pointer; }
 .hf i { font-size: 20px; }

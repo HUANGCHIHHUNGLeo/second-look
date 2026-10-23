@@ -28,13 +28,13 @@ Everything below is what we actually ran into while building this project, with 
 - **Feature requests:** (important) a `protocol_version` option on `MCPClient`; (nice-to-have) quieter image-relocation logging.
 - **Would we build with it again:** yes; it was the fastest path to a tool-calling agent against an MCP server.
 
-## Gemini API (guide compiler and optional agent model)
-- **Used for:** writing the step-by-step guide from ~90 keyframes + a transcript with a JSON response schema.
-- **What worked well:** structured output with a Pydantic schema; good grounding when given frames and timestamped lines together.
-- **What needs work:** on the deadline evening `gemini-flash-latest` and `gemini-3.7-flash` returned 503 "high demand" for long stretches; `gemini-pro-latest` returned 429 quota. We added retries and fallbacks across models and to OpenAI vision.
+## Gemini API (guide compiler, optional agent model, demo voices)
+- **Used for:** writing the step-by-step guide from ~90 keyframes + a transcript with a JSON response schema; the demo video's voices (`gemini-3.8-flash-tts`, two-speaker for the cook and Alexa).
+- **What worked well:** structured output with a Pydantic schema; good grounding when given frames and timestamped lines together. Text-to-speech sounds far more natural than what we used before, and one two-speaker request voices a whole exchange.
+- **What needs work:** on the deadline evening `gemini-flash-latest` and `gemini-3.7-flash` returned 503 "high demand" for long stretches; `gemini-pro-latest` returned 429 quota. We added retries and fallbacks across models and to OpenAI vision. `gemini-3.8-flash-tts` reads a style instruction placed in the text aloud, rejects `systemInstruction` ("Developer instruction is not enabled for this model"), wants `speechMetadata.speaker` on every part for two speakers, and returns no word timings, so we cut lines apart with Whisper.
 
 ## OpenAI API
-- **Used for:** the agent's model through Strands (`gpt-4.1-mini`), the guide compiler fallback (`gpt-4.1` vision), and the demo video's voices (`gpt-4o-mini-tts`).
+- **Used for:** the agent's model through Strands (`gpt-4.1-mini`), the guide compiler fallback (`gpt-4.1` vision), and placeholder voices that pace the demo recording (`gpt-4o-mini-tts`).
 - **What worked well:** reliable tool calling and low latency (about 3–5 s per spoken turn including MCP calls).
 - **What needs work:** `gpt-4o-mini-tts` occasionally returned audio that stops mid-answer (a 32-word answer came back as 6.9 s and lost its last sentence, the timestamp). The demo script now checks words per second and re-synthesizes. `gpt-4.1-mini` also tends to read a whole step card aloud even when told to keep it to one sentence, so the MCP server now returns a short `speak` line and simple intents skip the model.
 

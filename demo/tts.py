@@ -1,4 +1,5 @@
-"""OpenAI text-to-speech for the demo soundtrack (narrator, the person cooking, Alexa)."""
+"""OpenAI text-to-speech placeholders that pace a take while it is recorded (narrator, the person cooking, Alexa).
+The final voices are made by revoice.py with Google Gemini text-to-speech."""
 import hashlib, json, os, subprocess, sys
 from pathlib import Path
 from openai import OpenAI
@@ -10,11 +11,18 @@ VOICES = {"narrator": ("onyx", "Calm, warm documentary narrator. Unhurried."),
           "alexa": ("nova", "A friendly, clear voice assistant. Natural, helpful, not robotic.")}
 _client = None
 
+LOCKED = os.environ.get("DEMO_TTS_LOCKED") == "1"  # voices were made ahead (revoice.py): never synthesize here
+
+
 def tts(role: str, text: str) -> tuple[Path, float]:
     global _client
     voice, style = VOICES[role]
     key = hashlib.sha1(f"{role}|{text}".encode()).hexdigest()[:16]
     path = OUT / f"{role}-{key}.mp3"
+    if LOCKED:
+        if not path.exists():
+            raise RuntimeError(f"no {role} voice made ahead for: {text[:60]}")
+        return path, float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)], capture_output=True, text=True).stdout.strip())
     words = len(text.split())
     for attempt in range(4):
         if not path.exists():
