@@ -83,9 +83,9 @@ cp .env.example .env                                       # add OPENAI_API_KEY 
 ./run.sh                                                   # MCP server :8765 + screen :8770
 ```
 
-Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our tests on deadline night a 2.5-minute video took 2 to 12 minutes end to end).
+Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (after a video is loaded, **New video** in the top bar brings the link box back) (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our tests on deadline night a 2.5-minute video took 2 to 12 minutes end to end).
 
-Tests (install the test extra first: `.venv/bin/pip install -e '.[test]' && .venv/bin/playwright install chromium`): `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation and number checks against the video, evidence search, ingredients the video never mentions, sessions, revision checks, idempotent timers) and `.venv/bin/python web/tests/handsfree_check.py` (hands-free mode in a real browser with a scripted recognizer).
+Tests (install the test extra first: `.venv/bin/pip install -e '.[test]' && .venv/bin/playwright install chromium`): `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation and number checks against the video, evidence search, ingredients the video never mentions, sessions, revision checks, idempotent timers) `.venv/bin/python web/tests/handsfree_check.py` (hands-free mode in a real browser with a scripted recognizer) and `.venv/bin/python web/tests/newvideo_check.py` (switching to another video after the sample).
 
 Use the server from any MCP client: `.venv/bin/crv-guide-mcp --port 8765`, then connect to `http://127.0.0.1:8765/mcp` (Streamable HTTP). Smoke test with a real MCP client: `.venv/bin/python server/tests/smoke_client.py`.
 
