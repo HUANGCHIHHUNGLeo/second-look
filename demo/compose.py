@@ -272,7 +272,7 @@ def main() -> None:
     lst.write_text("".join(f"file '{p}'\n" for p in pieces))
     final = OUT / "second-look-demo.mp4"
     run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-         "-r", str(FPS), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
+         "-r", str(FPS), "-af", "loudnorm=I=-16:TP=-1.5:LRA=11,alimiter=limit=0.84:level=false", "-c:a", "aac", "-b:a", "192k", "-ar", "48000",
          "-movflags", "+faststart", str(final)])
     print("FINAL", final, round(dur(final), 1), "s", "| import took", took)
 

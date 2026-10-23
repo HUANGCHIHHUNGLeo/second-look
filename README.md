@@ -83,7 +83,7 @@ cp .env.example .env                                       # add OPENAI_API_KEY 
 ./run.sh                                                   # MCP server :8765 + screen :8770
 ```
 
-Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our tests on deadline night a 2.5-minute video took 5 to 12 minutes end to end).
+Open http://127.0.0.1:8770 in Chrome, click **Load the sample video**, then tap the mic (or press Space) and talk, or type. The sample's guide ships pre-built in `server/fixtures/pasta/`, so it loads instantly; paste any other video URL to watch a new one (the guide step uses Gemini when `GEMINI_API_KEY` is set, otherwise OpenAI vision; in our tests on deadline night a 2.5-minute video took 2 to 12 minutes end to end).
 
 Tests (install the test extra first: `.venv/bin/pip install -e '.[test]' && .venv/bin/playwright install chromium`): `.venv/bin/python -m pytest server/tests/test_core.py` (guide validation and number checks against the video, evidence search, ingredients the video never mentions, sessions, revision checks, idempotent timers) and `.venv/bin/python web/tests/handsfree_check.py` (hands-free mode in a real browser with a scripted recognizer).
 
@@ -117,7 +117,9 @@ The conversation runs on the **Strands Agents SDK** (AWS's open-source agent fra
 - Timers ring while the screen is open; after a restart they show "done" or the correct time left (deadlines are stored), but there are no background notifications.
 - Voice uses the browser's Web Speech API (Chrome). Typing works everywhere. Hands-free mode was tested in Chromium with a scripted speech recognizer (`web/tests/handsfree_check.py`), not yet in a noisy kitchen; real recognition will sometimes mishear.
 - Answers are only as good as what the video shows and says; when the search finds nothing the assistant says the video doesn't cover it. Answer wording comes from a model; the numbers it may use come from the quoted transcript line.
-- Tested on two narrated cooking videos so far (the sample and a goat-chops recipe). The guide writer is written for cooking; a 2.5-minute video took about 5 minutes to import on a busy evening.
+- Tested on two narrated cooking videos so far (the sample and a goat-chops recipe). The guide writer is written for cooking. Importing a 2.5-minute video took between 2 and 12 minutes on deadline night. Each video is watched once: importing the same link again returns the stored guide at once (`store.guide_by_source_key`), so on a shared server only the first cook of a popular video waits.
+- Videos with little or no narration: the steps are written from the frames as well as the words, and each step says what is only visible in the picture, but questions about amounts and times can only be answered from what is said.
+- Clips: the server downloads the video to cut clips, which is fine for the Creative Commons samples here. A public release would play the moment through the platform's own embedded player (start and end seconds) and keep only timestamps, short quotes and the guide.
 
 ## Credits
 
